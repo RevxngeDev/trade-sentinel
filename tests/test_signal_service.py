@@ -1,18 +1,14 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
-import pytest_asyncio
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import (
-    AsyncSession,
-    async_sessionmaker,
-    create_async_engine,
+from app.schemas.regime import (
+    RegimeConditions,
+    RegimeIndicators,
+    RegimeResponse,
+    SignalRead,
 )
-
-from app.core.database import Base
-from app.models.signal import Signal
-from app.schemas.regime import RegimeConditions, RegimeIndicators, RegimeResponse
 from app.services.signal_service import SignalService
 
 
@@ -41,54 +37,79 @@ def _make_response(timestamp: datetime, action: str = "BUY") -> RegimeResponse:
     )
 
 
-@pytest_asyncio.fixture
-async def session(tmp_path):
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path}/test.db")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+class InMemorySignalStore:
+    def __init__(self) -> None:
+        self.rows: list[dict[str, Any]] = []
 
-    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    async with factory() as db_session:
-        yield db_session
+    async def insert_if_absent(self, payload: dict[str, Any]) -> SignalRead | None:
+        if any(
+            row["pair"] == payload["pair"]
+            and row["signal_timestamp"] == payload["signal_timestamp"]
+            for row in self.rows
+        ):
+            return None
 
-    await engine.dispose()
+        row = {
+            **payload,
+            "id": len(self.rows) + 1,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        self.rows.append(row)
+        return SignalRead.model_validate(row)
+
+    async def get_by_candle(
+        self, pair: str, signal_timestamp: datetime
+    ) -> SignalRead | None:
+        timestamp = signal_timestamp.isoformat()
+        for row in self.rows:
+            if row["pair"] == pair and row["signal_timestamp"] == timestamp:
+                return SignalRead.model_validate(row)
+        return None
+
+    async def list_signals(
+        self, pair: str | None, limit: int
+    ) -> list[SignalRead]:
+        rows = [row for row in self.rows if pair is None or row["pair"] == pair]
+        rows.sort(key=lambda row: row["signal_timestamp"], reverse=True)
+        return [SignalRead.model_validate(row) for row in rows[:limit]]
 
 
-async def _count(session: AsyncSession) -> int:
-    return await session.scalar(select(func.count()).select_from(Signal))
-
-
-async def test_persist_creates_signal(session):
-    service = SignalService()
+async def test_persist_creates_signal() -> None:
+    store = InMemorySignalStore()
+    service = SignalService(store=store)
     ts = datetime(2026, 6, 11, 16, 0, tzinfo=timezone.utc)
 
-    stored = await service.persist(session, _make_response(ts))
+    stored = await service.persist(_make_response(ts))
 
     assert stored is not None
-    assert stored.id is not None
+    assert stored.id == 1
     assert stored.pair == "BTC/USDT"
     assert stored.action == "BUY"
     assert stored.conditions["rsi_above_50"] is True
-    assert await _count(session) == 1
 
 
-async def test_persist_dedupes_same_candle(session):
-    service = SignalService()
+async def test_persist_dedupes_same_candle() -> None:
+    store = InMemorySignalStore()
+    service = SignalService(store=store)
     ts = datetime(2026, 6, 11, 16, 0, tzinfo=timezone.utc)
 
-    first = await service.persist(session, _make_response(ts))
-    second = await service.persist(session, _make_response(ts, action="HOLD"))
+    first = await service.persist(_make_response(ts))
+    second = await service.persist(_make_response(ts, action="HOLD"))
 
     assert first is not None
-    assert second is None  # mismo (par, vela) -> no se duplica
-    assert await _count(session) == 1
+    assert second is None
+    assert len(store.rows) == 1
 
 
-async def test_persist_distinct_candles(session):
-    service = SignalService()
+async def test_list_signals_filters_and_orders_by_timestamp() -> None:
+    store = InMemorySignalStore()
+    service = SignalService(store=store)
     ts = datetime(2026, 6, 11, 16, 0, tzinfo=timezone.utc)
 
-    await service.persist(session, _make_response(ts))
-    await service.persist(session, _make_response(ts + timedelta(hours=1)))
+    await service.persist(_make_response(ts))
+    await service.persist(_make_response(ts + timedelta(hours=1)))
 
-    assert await _count(session) == 2
+    signals = await service.list_signals("BTC/USDT", limit=1)
+
+    assert len(signals) == 1
+    assert signals[0].signal_timestamp == ts + timedelta(hours=1)

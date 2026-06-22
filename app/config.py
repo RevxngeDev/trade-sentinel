@@ -39,6 +39,16 @@ class Settings(BaseSettings):
     # uses (recomendado: Session pooler, puerto 5432).
     database_url_sync: str = ""
 
+    # Runtime persistence uses the Supabase HTTPS API, not a PostgreSQL pooler.
+    # The service-role key is backend-only and must never reach clients.
+    supabase_url: str = ""
+    supabase_service_role_key: str = ""
+
+    # Forward-only paper-trading tracking. A result is evaluated from the first
+    # fully closed 1h candle at or after this horizon.
+    tracking_horizon_hours: int = 4
+    tracking_scan_limit: int = 500
+
     # Scheduler de captura de señales (paper trading 24/7).
     # Desactivado por defecto para no llamar a la red en dev/tests.
     # Cron por defecto: minuto 1 de cada 4ª hora UTC (tras el cierre de vela 4h).

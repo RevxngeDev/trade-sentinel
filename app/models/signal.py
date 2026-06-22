@@ -66,6 +66,9 @@ class Signal(Base):
 
 class SignalResult(Base):
     __tablename__ = "signal_results"
+    __table_args__ = (
+        UniqueConstraint("signal_id", name="uq_signal_result_signal_id"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     signal_id: Mapped[int] = mapped_column(

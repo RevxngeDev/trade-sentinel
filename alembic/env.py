@@ -52,12 +52,18 @@ def run_migrations_offline() -> None:
 
     """
     url = config.get_main_option("sqlalchemy.url")
-    context.configure(
-        url=url,
-        target_metadata=target_metadata,
-        literal_binds=True,
-        dialect_opts={"paramstyle": "named"},
-    )
+    configure_kwargs = {
+        "target_metadata": target_metadata,
+        "literal_binds": True,
+        "dialect_opts": {"paramstyle": "named"},
+    }
+
+    # Runtime now uses Supabase HTTPS and therefore may not have a direct
+    # PostgreSQL URL. Generate PostgreSQL DDL offline in that case.
+    if settings.supabase_url and not settings.database_url_sync:
+        context.configure(dialect_name="postgresql", **configure_kwargs)
+    else:
+        context.configure(url=url, **configure_kwargs)
 
     with context.begin_transaction():
         context.run_migrations()

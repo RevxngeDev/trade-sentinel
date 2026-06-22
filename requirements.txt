@@ -12,6 +12,7 @@ sqlalchemy[asyncio]>=2.0
 greenlet>=3.0
 alembic>=1.13
 apscheduler>=3.10
+supabase==2.13.0
 # Postgres / Supabase: asyncpg (runtime async), psycopg2 (migraciones Alembic).
 asyncpg>=0.29
 psycopg2-binary>=2.9

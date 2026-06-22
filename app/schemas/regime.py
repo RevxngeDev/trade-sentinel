@@ -63,3 +63,33 @@ class SignalRead(BaseModel):
     indicators: dict
     reasoning: str
     created_at: datetime
+
+
+TrackingOutcome = Literal["gain", "loss", "flat", "cash"]
+
+
+class SignalResultRead(BaseModel):
+    id: int
+    signal_id: int
+    outcome: TrackingOutcome
+    pnl_pct: float | None
+    evaluated_at: datetime | None
+
+
+class TrackingRunRead(BaseModel):
+    scanned: int
+    eligible: int
+    created: int
+    skipped_existing: int
+
+
+class SignalStatsRead(BaseModel):
+    total_signals: int
+    evaluated_signals: int
+    pending_signals: int
+    active_signals: int
+    cash_signals: int
+    active_win_rate_pct: float | None
+    average_active_return_pct: float | None
+    average_signal_return_pct: float | None
+    tracking_horizon_hours: int

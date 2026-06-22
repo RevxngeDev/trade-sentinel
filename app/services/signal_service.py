@@ -1,23 +1,15 @@
-"""
-SignalService: orquesta la generación de la señal y su persistencia.
-
-- `generate`: descarga 4h+1h y produce el RegimeResponse (pipeline validado).
-- `persist`: guarda la señal evitando duplicados por (par, vela de ejecución).
-- `generate_and_store`: ambas, para el endpoint de captura y el scheduler.
-"""
+"""Signal generation and Supabase HTTP persistence orchestration."""
 
 from __future__ import annotations
 
 import asyncio
-
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from datetime import datetime
 
 from app.config import settings
-from app.models.signal import Signal
-from app.schemas.regime import RegimeResponse
+from app.schemas.regime import RegimeResponse, SignalRead
 from app.services.market_data import MarketDataService
 from app.services.regime_service import RegimeService
+from app.services.signal_store import SignalStore, SupabaseSignalStore
 
 
 class SignalService:
@@ -25,9 +17,11 @@ class SignalService:
         self,
         market_data: MarketDataService | None = None,
         regime_service: RegimeService | None = None,
+        store: SignalStore | None = None,
     ) -> None:
         self.market_data = market_data or MarketDataService()
         self.regime_service = regime_service or RegimeService()
+        self.store = store or SupabaseSignalStore()
 
     async def generate(self, symbol: str) -> RegimeResponse:
         ohlcv_4h, ohlcv_1h = await asyncio.gather(
@@ -44,58 +38,47 @@ class SignalService:
                 settings.ohlcv_exec_limit,
             ),
         )
-
         normalized_symbol = self.market_data.normalize_symbol(symbol)
-
         return self.regime_service.analyze(
             symbol=normalized_symbol,
             ohlcv_1h=ohlcv_1h,
             ohlcv_4h=ohlcv_4h,
         )
 
-    async def persist(
-        self,
-        session: AsyncSession,
-        response: RegimeResponse,
-    ) -> Signal | None:
-        """Persiste la señal. Devuelve None si ya existía para esa vela."""
-        existing = await session.scalar(
-            select(Signal).where(
-                Signal.pair == response.symbol,
-                Signal.signal_timestamp == response.timestamp,
-            )
-        )
-        if existing is not None:
-            return None
+    async def persist(self, response: RegimeResponse) -> SignalRead | None:
+        """Store a signal once per pair and execution candle."""
+        return await self.store.insert_if_absent(self._to_payload(response))
 
-        signal = self._to_model(response)
-        session.add(signal)
-        await session.commit()
-        await session.refresh(signal)
-        return signal
+    async def get_by_candle(
+        self, pair: str, signal_timestamp: datetime
+    ) -> SignalRead | None:
+        return await self.store.get_by_candle(pair, signal_timestamp)
+
+    async def list_signals(
+        self, pair: str | None, limit: int
+    ) -> list[SignalRead]:
+        return await self.store.list_signals(pair, limit)
 
     async def generate_and_store(
-        self,
-        session: AsyncSession,
-        symbol: str,
-    ) -> tuple[RegimeResponse, Signal | None]:
+        self, symbol: str
+    ) -> tuple[RegimeResponse, SignalRead | None]:
         response = await self.generate(symbol)
-        stored = await self.persist(session, response)
+        stored = await self.persist(response)
         return response, stored
 
     @staticmethod
-    def _to_model(response: RegimeResponse) -> Signal:
-        return Signal(
-            pair=response.symbol,
-            timeframe=response.timeframe,
-            action=response.action,
-            regime_on=response.regime_on,
-            previous_regime_on=response.previous_regime_on,
-            confidence=response.confidence,
-            price=response.price,
-            signal_timestamp=response.timestamp,
-            decision_timestamp=response.decision_timestamp,
-            conditions=response.conditions.model_dump(),
-            indicators=response.indicators.model_dump(),
-            reasoning=response.reasoning,
-        )
+    def _to_payload(response: RegimeResponse) -> dict:
+        return {
+            "pair": response.symbol,
+            "timeframe": response.timeframe,
+            "action": response.action,
+            "regime_on": response.regime_on,
+            "previous_regime_on": response.previous_regime_on,
+            "confidence": response.confidence,
+            "price": response.price,
+            "signal_timestamp": response.timestamp.isoformat(),
+            "decision_timestamp": response.decision_timestamp.isoformat(),
+            "conditions": response.conditions.model_dump(),
+            "indicators": response.indicators.model_dump(),
+            "reasoning": response.reasoning,
+        }
