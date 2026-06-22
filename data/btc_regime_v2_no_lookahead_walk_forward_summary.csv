@@ -1,0 +1,2 @@
+folds,avg_test_return_pct,median_test_return_pct,sum_test_return_pct_simple,avg_benchmark_return_pct,sum_benchmark_return_pct_simple,avg_strategy_drawdown_pct,avg_benchmark_drawdown_pct,avg_profit_factor,total_test_trades,avg_exposure_pct,profitable_folds,beat_benchmark_folds
+7,-1.516967542240591,-4.735380445038184,-10.618772795684137,0.8047044015147237,5.6329308106030656,8.935521619020651,18.81623963126105,0.23290623069766295,18,37.75156141568356,2,3

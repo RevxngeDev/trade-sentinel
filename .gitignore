@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Entorno virtual
+.venv/
+
+# Base de datos local (SQLite)
+*.db
+*.db-journal
+*.sqlite3
+
+# Secretos / entorno local
+.env
+
+# Outputs derivados del backtest (regenerables)
+data/*.html
+
+# Asistentes de IA / editores (no son parte del proyecto)
+CLAUDE.md
+AGENTS.md
+.claude/
+.cursor/
+.cursorrules
+.windsurfrules
+.github/copilot-instructions.md
+
+# Obsidian vault
+.obsidian/
+*.canvas
+
+# Documentación de contexto para IA (no esencial para ejecutar el proyecto)
+docs/ai-context/
+
+# OS
+.DS_Store
+Thumbs.db
