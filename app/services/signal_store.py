@@ -21,6 +21,8 @@ class SignalStore(Protocol):
 
     async def list_signals(self, pair: str | None, limit: int) -> list[SignalRead]: ...
 
+    async def get_by_id(self, signal_id: int) -> SignalRead | None: ...
+
 
 class SignalResultStore(Protocol):
     async def list_result_signal_ids(self, limit: int) -> set[int]: ...
@@ -84,6 +86,19 @@ class SupabaseSignalStore:
 
         response = await asyncio.to_thread(fetch)
         return [SignalRead.model_validate(item) for item in response.data]
+
+    async def get_by_id(self, signal_id: int) -> SignalRead | None:
+        def fetch() -> Any:
+            return (
+                self.client.table("signals")
+                .select("*")
+                .eq("id", signal_id)
+                .limit(1)
+                .execute()
+            )
+
+        response = await asyncio.to_thread(fetch)
+        return SignalRead.model_validate(response.data[0]) if response.data else None
 
 
 class SupabaseSignalResultStore:

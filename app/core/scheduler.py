@@ -7,6 +7,7 @@ import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from app.bot.telegram_bot import send_signal_alert
 from app.config import settings
 from app.services.signal_service import SignalService
 from app.services.tracker_service import TrackerService
@@ -28,6 +29,7 @@ async def capture_signal_job() -> None:
                 stored.pair,
                 stored.signal_timestamp,
             )
+            await send_signal_alert(stored)
         else:
             logger.info("Signal for this candle already exists.")
         logger.info(

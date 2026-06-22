@@ -93,3 +93,13 @@ class SignalStatsRead(BaseModel):
     average_active_return_pct: float | None
     average_signal_return_pct: float | None
     tracking_horizon_hours: int
+
+
+class AgentInterpretation(BaseModel):
+    """LLM explanation of a deterministic signal, never a trading decision."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    confidence: int = Field(ge=0, le=100)
+    reasoning: str = Field(min_length=1, max_length=1200)
+    risk_notes: str = Field(min_length=1, max_length=800)

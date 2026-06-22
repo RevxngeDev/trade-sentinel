@@ -49,6 +49,16 @@ class Settings(BaseSettings):
     tracking_horizon_hours: int = 4
     tracking_scan_limit: int = 500
 
+    # AI interpretation is optional and never controls a signal action.
+    groq_api_key: str = ""
+    groq_model: str = "llama-3.1-8b-instant"
+    ai_max_retries: int = 2
+
+    # Telegram is disabled until a backend-only bot token is configured.
+    telegram_enabled: bool = False
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
+
     # Scheduler de captura de señales (paper trading 24/7).
     # Desactivado por defecto para no llamar a la red en dev/tests.
     # Cron por defecto: minuto 1 de cada 4ª hora UTC (tras el cierre de vela 4h).

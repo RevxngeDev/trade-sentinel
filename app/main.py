@@ -2,15 +2,20 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.api.routes.interpretations import router as interpretations_router
 from app.api.routes.regime import router as regime_router
 from app.api.routes.signals import router as signals_router
 from app.api.routes.stats import router as stats_router
+from app.bot.telegram_bot import telegram_bot
 from app.config import settings
 from app.core.scheduler import shutdown_scheduler, start_scheduler
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if settings.telegram_enabled:
+        await telegram_bot.start()
+
     if settings.scheduler_enabled:
         start_scheduler()
 
@@ -18,6 +23,9 @@ async def lifespan(app: FastAPI):
 
     if settings.scheduler_enabled:
         shutdown_scheduler()
+
+    if settings.telegram_enabled:
+        await telegram_bot.stop()
 
 
 app = FastAPI(
@@ -45,3 +53,4 @@ async def health() -> dict[str, str]:
 app.include_router(regime_router)
 app.include_router(signals_router)
 app.include_router(stats_router)
+app.include_router(interpretations_router)

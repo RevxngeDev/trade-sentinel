@@ -59,6 +59,9 @@ class SignalService:
     ) -> list[SignalRead]:
         return await self.store.list_signals(pair, limit)
 
+    async def get_by_id(self, signal_id: int) -> SignalRead | None:
+        return await self.store.get_by_id(signal_id)
+
     async def generate_and_store(
         self, symbol: str
     ) -> tuple[RegimeResponse, SignalRead | None]:
