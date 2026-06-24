@@ -9,7 +9,13 @@ from telegram.error import TelegramError
 from telegram.ext import Application, CommandHandler
 
 from app.bot.formatters import format_signal
-from app.bot.handlers import analyze_command, help_command, signals_command, stats_command
+from app.bot.handlers import (
+    analyze_command,
+    help_command,
+    interpret_command,
+    signals_command,
+    stats_command,
+)
 from app.config import settings
 from app.schemas.regime import SignalRead
 
@@ -31,19 +37,43 @@ class TelegramBotService:
         application.add_handler(CommandHandler("analizar", analyze_command))
         application.add_handler(CommandHandler("senales", signals_command))
         application.add_handler(CommandHandler("stats", stats_command))
+        application.add_handler(CommandHandler("interpretar", interpret_command))
         return application
 
-    async def start(self) -> None:
+    async def start(self) -> bool:
+        """Start polling without allowing a Telegram outage to stop the API."""
         if self.application is not None:
-            return
+            return True
 
-        self.application = self._build_application()
-        await self.application.initialize()
-        await self.application.start()
-        if self.application.updater is None:
-            raise RuntimeError("Telegram updater is unavailable")
-        await self.application.updater.start_polling(drop_pending_updates=True)
+        application = self._build_application()
+        try:
+            await application.initialize()
+            await application.start()
+            if application.updater is None:
+                raise RuntimeError("Telegram updater is unavailable")
+            await application.updater.start_polling(drop_pending_updates=True)
+        except TelegramError:
+            logger.exception(
+                "Telegram bot startup failed; continuing without Telegram polling"
+            )
+            await self._cleanup_failed_start(application)
+            return False
+
+        self.application = application
         logger.info("Telegram bot polling started")
+        return True
+
+    async def _cleanup_failed_start(self, application: Application) -> None:
+        """Best-effort cleanup after a Telegram startup failure."""
+        try:
+            if application.updater is not None and application.updater.running:
+                await application.updater.stop()
+            if application.running:
+                await application.stop()
+            if application.initialized:
+                await application.shutdown()
+        except Exception:  # noqa: BLE001 - cleanup must not stop FastAPI startup
+            logger.warning("Telegram cleanup after startup failure also failed", exc_info=True)
 
     async def stop(self) -> None:
         if self.application is None:

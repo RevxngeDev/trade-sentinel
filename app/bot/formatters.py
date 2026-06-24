@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from app.schemas.regime import RegimeResponse, SignalRead, SignalStatsRead
+from app.schemas.regime import (
+    AgentInterpretation,
+    RegimeResponse,
+    SignalRead,
+    SignalStatsRead,
+)
 
 
 def format_signal(signal: RegimeResponse | SignalRead) -> str:
@@ -25,6 +30,17 @@ def format_signal_history(signals: list[SignalRead]) -> str:
         timestamp = signal.signal_timestamp.strftime("%Y-%m-%d %H:%M UTC")
         rows.append(f"• {timestamp} | {signal.pair} | {signal.action} | {signal.confidence}/100")
     return "\n".join(rows)
+
+
+def format_interpretation(signal_id: int, interpretation: AgentInterpretation) -> str:
+    """Format a bounded LLM explanation without restating a trade action."""
+    return (
+        f"Interpretación de IA para la señal #{signal_id}\n"
+        f"Confianza interpretativa: {interpretation.confidence}/100\n\n"
+        f"Contexto: {interpretation.reasoning}\n\n"
+        f"Riesgos: {interpretation.risk_notes}\n\n"
+        "La IA no cambia la señal determinista. Uso educativo y paper trading."
+    )
 
 
 def format_stats(stats: SignalStatsRead) -> str:

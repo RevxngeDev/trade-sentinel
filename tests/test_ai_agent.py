@@ -51,6 +51,8 @@ async def test_interpretation_returns_valid_bounded_json() -> None:
     assert "mixtas" in interpretation.reasoning
     assert len(client.calls) == 1
     assert '"action"' not in client.calls[0][1]
+    assert "deterministic_reasoning" not in client.calls[0][1]
+    assert "keep the strategy in cash" not in client.calls[0][1]
 
 
 async def test_interpretation_retries_when_response_tries_to_choose_action() -> None:
@@ -84,4 +86,38 @@ async def test_interpretation_retries_when_text_recommends_an_action() -> None:
     interpretation = await service.interpret(_signal())
 
     assert interpretation.confidence == 48
+    assert len(client.calls) == 2
+
+
+async def test_interpretation_retries_when_text_invents_market_labels() -> None:
+    client = FakeInterpretationClient(
+        [
+            '{"confidence": 50, "reasoning": "El RSI por encima de 50 indica un mercado sobrecomprado.", '
+            '"risk_notes": "Existe una posible reversión."}',
+            '{"confidence": 45, "reasoning": "La EMA200 no cumple la condición de aumento.", '
+            '"risk_notes": "Las condiciones técnicas son incompletas."}',
+        ]
+    )
+    service = AIInterpretationService(client=client)
+
+    interpretation = await service.interpret(_signal())
+
+    assert interpretation.confidence == 45
+    assert len(client.calls) == 2
+
+
+async def test_interpretation_retries_when_text_repeats_observed_price() -> None:
+    client = FakeInterpretationClient(
+        [
+            '{"confidence": 50, "reasoning": "El precio observado fue 1.00.", '
+            '"risk_notes": "Las condiciones son mixtas."}',
+            '{"confidence": 46, "reasoning": "La estructura técnica es parcialmente alcista.", '
+            '"risk_notes": "La EMA200 no cumple todas las condiciones."}',
+        ]
+    )
+    service = AIInterpretationService(client=client)
+
+    interpretation = await service.interpret(_signal())
+
+    assert interpretation.confidence == 46
     assert len(client.calls) == 2
