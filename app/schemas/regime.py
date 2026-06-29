@@ -31,7 +31,7 @@ class RegimeResponse(BaseModel):
     previous_regime_on: bool
     confidence: int = Field(ge=0, le=100)
 
-    # Precio de la vela de ejecución (1h) en el momento de la señal.
+    # Apertura de la vela de ejecución (1h): mismo valor en vivo y en backfill.
     price: float
 
     timestamp: datetime
@@ -81,6 +81,17 @@ class TrackingRunRead(BaseModel):
     eligible: int
     created: int
     skipped_existing: int
+
+
+class BackfillRunRead(BaseModel):
+    """Resultado de rellenar señales de fronteras 4h que faltaban."""
+
+    scanned: int
+    created: int
+    skipped_existing: int
+    skipped_insufficient: int
+    first_slot: datetime | None
+    last_slot: datetime | None
 
 
 class SignalStatsRead(BaseModel):

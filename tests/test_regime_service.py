@@ -45,6 +45,15 @@ def test_analyze_returns_valid_response() -> None:
     assert response.decision_timestamp < response.timestamp
 
 
+def test_price_uses_execution_candle_open() -> None:
+    """El precio registrado es la APERTURA de la vela de ejecución (vivo == backfill)."""
+    df_1h, df_4h = _load("1h"), _load("4h")
+    response = RegimeService().analyze("BTC/USDT", ohlcv_1h=df_1h, ohlcv_4h=df_4h)
+
+    expected_open = float(add_core_indicators(df_1h)["open"].iloc[-1])
+    assert response.price == expected_open
+
+
 def test_service_signal_matches_validated_pipeline() -> None:
     """La señal en vivo == el pipeline validado (build_regime_signals + estado)."""
     df_1h_raw, df_4h_raw = _load("1h"), _load("4h")

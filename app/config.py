@@ -65,6 +65,11 @@ class Settings(BaseSettings):
     scheduler_enabled: bool = False
     scheduler_cron: str = "1 */4 * * *"
 
+    # Backfill: al arrancar, rellenar las señales de fronteras 4h que falten
+    # (p.ej. si el backend estuvo apagado). Idempotente (dedupe por vela).
+    backfill_on_startup: bool = True
+    backfill_lookback_days: int = 7
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

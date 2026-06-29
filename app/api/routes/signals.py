@@ -2,11 +2,22 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
 
-from app.schemas.regime import SignalRead
+from app.schemas.regime import BackfillRunRead, SignalRead
 from app.services.market_data import MarketDataError, MarketDataService
 from app.services.signal_service import SignalService
 
 router = APIRouter(prefix="/signals", tags=["signals"])
+
+
+@router.post("/backfill/{symbol}", response_model=BackfillRunRead)
+async def backfill_signals(symbol: str) -> BackfillRunRead:
+    """Rellena las señales de fronteras 4h que falten (idempotente)."""
+    try:
+        return await SignalService().backfill(symbol)
+    except MarketDataError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("", response_model=list[SignalRead])

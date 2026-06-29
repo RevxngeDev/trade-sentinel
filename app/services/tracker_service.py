@@ -9,7 +9,12 @@ from typing import Callable
 import pandas as pd
 
 from app.config import settings
-from app.schemas.regime import SignalRead, SignalStatsRead, TrackingRunRead
+from app.schemas.regime import (
+    SignalRead,
+    SignalResultRead,
+    SignalStatsRead,
+    TrackingRunRead,
+)
 from app.services.market_data import MarketDataService
 from app.services.signal_store import (
     SignalResultStore,
@@ -105,6 +110,10 @@ class TrackerService:
             ),
             tracking_horizon_hours=settings.tracking_horizon_hours,
         )
+
+    async def list_results(self, limit: int | None = None) -> list[SignalResultRead]:
+        """Return recent paper-trading observations without modifying state."""
+        return await self.result_store.list_results(limit or settings.tracking_scan_limit)
 
     async def _forward_exit_price(
         self,

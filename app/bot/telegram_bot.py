@@ -70,7 +70,10 @@ class TelegramBotService:
                 await application.updater.stop()
             if application.running:
                 await application.stop()
-            if application.initialized:
+            is_initialized = getattr(
+                application, "initialized", getattr(application, "_initialized", False)
+            )
+            if is_initialized:
                 await application.shutdown()
         except Exception:  # noqa: BLE001 - cleanup must not stop FastAPI startup
             logger.warning("Telegram cleanup after startup failure also failed", exc_info=True)

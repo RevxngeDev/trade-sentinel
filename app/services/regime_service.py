@@ -96,7 +96,12 @@ class RegimeService:
             regime_on=current_in_position,
             previous_regime_on=previous_in_position,
             confidence=confidence,
-            price=float(signal_df["close"].iloc[-1]),
+            # Precio de ejecución = APERTURA de la vela de la señal. La apertura
+            # es idéntica esté la vela en progreso (captura en vivo a HH:01) o ya
+            # cerrada (backfill), por lo que vivo y backfill registran el mismo
+            # precio. Además evita usar precio intra-vela no disponible al momento
+            # de la señal (el cierre sería un mini-lookahead sobre el precio).
+            price=float(signal_df["open"].iloc[-1]),
             timestamp=signal_df.index[-1].to_pydatetime(),
             decision_timestamp=decision_row_4h.name.to_pydatetime(),
             indicators=RegimeIndicators(

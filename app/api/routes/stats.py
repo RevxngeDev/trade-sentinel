@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query
 
-from app.schemas.regime import SignalStatsRead, TrackingRunRead
+from app.schemas.regime import SignalResultRead, SignalStatsRead, TrackingRunRead
 from app.services.market_data import MarketDataError
 from app.services.tracker_service import TrackerService
 
@@ -20,3 +20,10 @@ async def evaluate_pending_signals(
 @router.get("/stats", response_model=SignalStatsRead)
 async def get_signal_stats() -> SignalStatsRead:
     return await TrackerService().get_stats()
+
+
+@router.get("/tracking/results", response_model=list[SignalResultRead])
+async def list_tracking_results(
+    limit: int = Query(default=100, ge=1, le=500),
+) -> list[SignalResultRead]:
+    return await TrackerService().list_results(limit)

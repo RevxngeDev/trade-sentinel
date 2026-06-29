@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 from apscheduler.triggers.cron import CronTrigger
 
-from app.config import settings
+from app.config import Settings, settings
 from app.core import scheduler as scheduler_module
 
 
@@ -20,7 +20,7 @@ def test_capture_job_is_coroutine() -> None:
 
 def test_scheduler_disabled_by_default() -> None:
     # Evita llamadas de red en dev/tests salvo que se active explícitamente.
-    assert settings.scheduler_enabled is False
+    assert Settings(_env_file=None).scheduler_enabled is False
 
 
 async def test_capture_job_evaluates_pending_signals_before_capture(monkeypatch) -> None:

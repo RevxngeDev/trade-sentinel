@@ -123,7 +123,7 @@ async def test_telegram_start_timeout_does_not_keep_api_from_starting(monkeypatc
     class FailingApplication:
         updater = None
         running = False
-        initialized = False
+        _initialized = False
 
         async def initialize(self) -> None:
             raise TimedOut

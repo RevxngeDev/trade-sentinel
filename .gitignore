@@ -18,6 +18,10 @@ __pycache__/
 # Outputs derivados del backtest (regenerables)
 data/*.html
 
+# Runtime local
+tradesentinel-runtime*.log
+tradesentinel-runtime.pid
+
 # Asistentes de IA / editores (no son parte del proyecto)
 CLAUDE.md
 AGENTS.md

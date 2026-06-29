@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import pandas as pd
+
 from app.schemas.regime import (
     RegimeConditions,
     RegimeIndicators,
@@ -113,3 +115,81 @@ async def test_list_signals_filters_and_orders_by_timestamp() -> None:
 
     assert len(signals) == 1
     assert signals[0].signal_timestamp == ts + timedelta(hours=1)
+
+
+class FakeMarketData:
+    def __init__(self, frame: pd.DataFrame) -> None:
+        self.frame = frame
+
+    def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int) -> pd.DataFrame:
+        return self.frame
+
+    @staticmethod
+    def normalize_symbol(symbol: str) -> str:
+        return "BTC/USDT"
+
+
+class FakeRegime:
+    """Devuelve una señal cuyo timestamp es la última vela del slice."""
+
+    def analyze(
+        self, symbol: str, ohlcv_1h: pd.DataFrame, ohlcv_4h: pd.DataFrame
+    ) -> RegimeResponse:
+        return _make_response(ohlcv_1h.index[-1].to_pydatetime(), action="CASH")
+
+
+def _hourly_frame(start: str, end: str) -> pd.DataFrame:
+    index = pd.date_range(start, end, freq="1h", tz="UTC")
+    return pd.DataFrame({"close": 1.0}, index=index)
+
+
+async def test_backfill_creates_missing_4h_slots() -> None:
+    service = SignalService(
+        market_data=FakeMarketData(_hourly_frame("2026-06-25 00:00", "2026-06-26 12:00")),
+        regime_service=FakeRegime(),
+        store=InMemorySignalStore(),
+    )
+    since = datetime(2026, 6, 25, 0, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 6, 26, 13, 0, tzinfo=timezone.utc)
+
+    result = await service.backfill("BTCUSDT", since=since, now=now)
+
+    # 06-25: 00,04,08,12,16,20 (6) + 06-26: 00,04,08,12 (4) = 10 fronteras 4h cerradas.
+    assert result.created == 10
+    assert result.skipped_existing == 0
+    assert result.first_slot == since
+    assert result.last_slot == datetime(2026, 6, 26, 12, 0, tzinfo=timezone.utc)
+
+
+async def test_backfill_is_idempotent() -> None:
+    service = SignalService(
+        market_data=FakeMarketData(_hourly_frame("2026-06-25 00:00", "2026-06-26 12:00")),
+        regime_service=FakeRegime(),
+        store=InMemorySignalStore(),
+    )
+    since = datetime(2026, 6, 25, 0, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 6, 26, 13, 0, tzinfo=timezone.utc)
+
+    first = await service.backfill("BTCUSDT", since=since, now=now)
+    second = await service.backfill("BTCUSDT", since=since, now=now)
+
+    assert first.created == 10
+    assert second.created == 0
+    assert second.skipped_existing == 10
+
+
+async def test_backfill_excludes_unclosed_current_slot() -> None:
+    service = SignalService(
+        market_data=FakeMarketData(_hourly_frame("2026-06-26 00:00", "2026-06-26 12:00")),
+        regime_service=FakeRegime(),
+        store=InMemorySignalStore(),
+    )
+    since = datetime(2026, 6, 26, 0, 0, tzinfo=timezone.utc)
+    # "now" cae dentro de la vela de las 12:00 -> aún no cierra, no se rellena.
+    now = datetime(2026, 6, 26, 12, 30, tzinfo=timezone.utc)
+
+    result = await service.backfill("BTCUSDT", since=since, now=now)
+
+    # 06-26: 00,04,08 cerradas; 12:00 excluida (cierra 13:00). = 3
+    assert result.created == 3
+    assert result.last_slot == datetime(2026, 6, 26, 8, 0, tzinfo=timezone.utc)

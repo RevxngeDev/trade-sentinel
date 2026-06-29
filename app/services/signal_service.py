@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+
+import pandas as pd
 
 from app.config import settings
-from app.schemas.regime import RegimeResponse, SignalRead
+from app.schemas.regime import BackfillRunRead, RegimeResponse, SignalRead
 from app.services.market_data import MarketDataService
 from app.services.regime_service import RegimeService
 from app.services.signal_store import SignalStore, SupabaseSignalStore
@@ -68,6 +70,116 @@ class SignalService:
         response = await self.generate(symbol)
         stored = await self.persist(response)
         return response, stored
+
+    async def backfill(
+        self,
+        symbol: str,
+        *,
+        since: datetime | None = None,
+        now: datetime | None = None,
+        lookback_days: int | None = None,
+    ) -> BackfillRunRead:
+        """
+        Rellena las señales de las fronteras de 4h que falten (p.ej. tras un
+        apagón del backend). Reconstruye cada señal pasada cortando los OHLCV
+        hasta esa vela y usando el MISMO pipeline `analyze` (indicadores
+        causales => idéntico a lo que se habría capturado en vivo). Idempotente.
+        """
+        now = now or datetime.now(timezone.utc)
+
+        ohlcv_4h, ohlcv_1h = await asyncio.gather(
+            asyncio.to_thread(
+                self.market_data.fetch_ohlcv,
+                symbol,
+                settings.regime_base_timeframe,
+                settings.ohlcv_limit,
+            ),
+            asyncio.to_thread(
+                self.market_data.fetch_ohlcv,
+                symbol,
+                settings.regime_exec_timeframe,
+                settings.ohlcv_exec_limit,
+            ),
+        )
+
+        normalized_symbol = self.market_data.normalize_symbol(symbol)
+        existing = await self.store.list_signals(
+            normalized_symbol, settings.tracking_scan_limit
+        )
+        existing_ts = {signal.signal_timestamp for signal in existing}
+
+        if since is None:
+            if existing_ts:
+                since = min(existing_ts)
+            else:
+                days = (
+                    lookback_days
+                    if lookback_days is not None
+                    else settings.backfill_lookback_days
+                )
+                since = now - timedelta(days=days)
+
+        slots = self._four_hour_slots(ohlcv_1h.index, since=since, now=now)
+
+        scanned = created = skipped_existing = skipped_insufficient = 0
+        for slot in slots:
+            scanned += 1
+            if slot.to_pydatetime() in existing_ts:
+                skipped_existing += 1
+                continue
+
+            df_1h = ohlcv_1h[ohlcv_1h.index <= slot]
+            df_4h = ohlcv_4h[ohlcv_4h.index <= slot]
+
+            try:
+                response = self.regime_service.analyze(
+                    symbol=normalized_symbol,
+                    ohlcv_1h=df_1h,
+                    ohlcv_4h=df_4h,
+                )
+            except ValueError:
+                # Aún no hay suficiente historia (EMA200) para esa vela.
+                skipped_insufficient += 1
+                continue
+
+            stored = await self.persist(response)
+            if stored is not None:
+                created += 1
+                existing_ts.add(slot.to_pydatetime())
+            else:
+                skipped_existing += 1
+
+        return BackfillRunRead(
+            scanned=scanned,
+            created=created,
+            skipped_existing=skipped_existing,
+            skipped_insufficient=skipped_insufficient,
+            first_slot=slots[0].to_pydatetime() if slots else None,
+            last_slot=slots[-1].to_pydatetime() if slots else None,
+        )
+
+    @staticmethod
+    def _four_hour_slots(
+        index: pd.DatetimeIndex,
+        *,
+        since: datetime,
+        now: datetime,
+    ) -> list[pd.Timestamp]:
+        """Velas 1h en fronteras de 4h (00/04/08/12/16/20), cerradas, desde `since`."""
+        since_ts = pd.Timestamp(since)
+        now_ts = pd.Timestamp(now)
+
+        slots: list[pd.Timestamp] = []
+        for timestamp in index:
+            if timestamp.hour % 4 != 0 or timestamp.minute != 0:
+                continue
+            if timestamp < since_ts:
+                continue
+            if timestamp + pd.Timedelta(hours=1) > now_ts:
+                # La vela aún no ha cerrado: la captura el scheduler en vivo.
+                continue
+            slots.append(timestamp)
+        return slots
 
     @staticmethod
     def _to_payload(response: RegimeResponse) -> dict:
