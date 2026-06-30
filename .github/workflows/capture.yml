@@ -30,6 +30,10 @@ jobs:
       - name: Capture + backfill + evaluate
         run: python -m app.jobs.capture
         env:
+          # Binance responde 451 (geobloqueo) desde la IP del runner de GitHub.
+          # KuCoin es accesible globalmente y da el mismo régimen (OHLCV BTC/USDT
+          # casi idéntico). El backtest/validación local siguen en Binance.
+          EXCHANGE_ID: kucoin
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           # Alertas push (salientes). Si no defines los secrets de Telegram, el
