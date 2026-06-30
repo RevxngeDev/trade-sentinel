@@ -8,15 +8,13 @@ fastapi>=0.111.0
 uvicorn[standard]>=0.30.0
 pydantic>=2.7.0
 pydantic-settings>=2.3.0
-sqlalchemy[asyncio]>=2.0
-greenlet>=3.0
+# SQLAlchemy + Alembic: SOLO para definir/migrar el esquema (no runtime).
+sqlalchemy>=2.0
 alembic>=1.13
+# Driver sync para migraciones Alembic a Postgres (las de Supabase se aplican
+# offline con `alembic upgrade head --sql` + SQL Editor).
+psycopg2-binary>=2.9
 apscheduler>=3.10
 supabase==2.13.0
 groq>=0.25.0
 python-telegram-bot>=21,<23
-# Postgres / Supabase: asyncpg (runtime async), psycopg2 (migraciones Alembic).
-asyncpg>=0.29
-psycopg2-binary>=2.9
-# SQLite async: solo para tests/dev local.
-aiosqlite>=0.20

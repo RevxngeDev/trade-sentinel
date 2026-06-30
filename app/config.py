@@ -30,13 +30,12 @@ class Settings(BaseSettings):
 
     min_confidence: int = 65
 
-    # Base de datos (runtime, async). Por defecto SQLite local (dev/tests).
-    # En producción/Supabase: postgresql+asyncpg://... (vía .env).
-    database_url: str = "sqlite+aiosqlite:///./tradesentinel.db"
-
-    # URL SYNC para migraciones Alembic (Postgres -> psycopg2). Si se deja
-    # vacío se deriva de database_url. En Supabase apuntar a la conexión que
-    # uses (recomendado: Session pooler, puerto 5432).
+    # El runtime NO usa SQLAlchemy: persiste vía supabase-py (HTTP). Estos URLs
+    # son SOLO para Alembic (esquema/migraciones). Por defecto SQLite local.
+    database_url: str = "sqlite:///./tradesentinel.db"
+    # URL sync explícito para migraciones a Postgres (si se deja vacío se deriva
+    # de database_url). Las migraciones a Supabase se aplican offline:
+    # `alembic upgrade head --sql` y pegar en el SQL Editor.
     database_url_sync: str = ""
 
     # Runtime persistence uses the Supabase HTTPS API, not a PostgreSQL pooler.

@@ -15,9 +15,10 @@ async def test_dashboard_serves_read_only_personal_page() -> None:
     assert 'fetch("/stats")' in html
     assert 'fetch("/signals?pair=BTC%2FUSDT&limit=500")' in html
     assert 'fetch("/tracking/results?limit=500")' in html
-    # Gráficos de distribución (sin dependencias externas).
+    # Gráficos (sin dependencias externas).
     assert 'id="actionChart"' in html
     assert 'id="outcomeChart"' in html
+    assert 'id="dailyChart"' in html
 
 
 async def test_tracking_results_route_lists_recent_results(monkeypatch) -> None:

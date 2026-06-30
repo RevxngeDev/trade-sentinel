@@ -253,6 +253,8 @@ DASHBOARD_HTML = """
     .fill-cash { background: var(--cash); }
     .fill-loss { background: var(--danger); }
     .fill-flat, .fill-pending { background: var(--muted); }
+    .fill-day { background: var(--accent); }
+    .fill-day.zero { background: rgba(148, 163, 184, 0.25); }
 
     @media (max-width: 700px) { .charts { grid-template-columns: 1fr; } }
 
@@ -326,6 +328,15 @@ DASHBOARD_HTML = """
           <div id="outcomeChart"><p class="muted">Cargando...</p></div>
         </div>
       </div>
+    </section>
+
+    <section class="panel">
+      <h2>Captura por día (últimos 14 días)</h2>
+      <div id="dailyChart"><p class="muted">Cargando...</p></div>
+      <p class="footer-note">
+        Vela cada 4 h => ~6 señales/día cuando la captura corre parejo. Días con menos
+        indican que el job no se ejecutó (apagón o salto del cron).
+      </p>
     </section>
 
     <section class="panel">
@@ -455,6 +466,21 @@ DASHBOARD_HTML = """
         { label: "Cash", count: outcomes.cash, cls: "cash" },
         { label: "Pendiente", count: outcomes.pending, cls: "pending" },
       ]);
+
+      const dayCounts = new Map();
+      signals.forEach((signal) => {
+        const key = new Date(signal.signal_timestamp).toISOString().slice(0, 10);
+        dayCounts.set(key, (dayCounts.get(key) || 0) + 1);
+      });
+      const now = new Date();
+      const days = [];
+      for (let i = 0; i < 14; i += 1) {
+        const day = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - i));
+        const key = day.toISOString().slice(0, 10);
+        const count = dayCounts.get(key) || 0;
+        days.push({ label: key.slice(5), count, cls: count ? "day" : "day zero" });
+      }
+      renderBars("dailyChart", days);
 
       const rows = signals.slice(0, 25).map((signal) => {
         const result = resultBySignalId.get(signal.id);
