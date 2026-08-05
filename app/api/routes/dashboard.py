@@ -256,6 +256,21 @@ DASHBOARD_HTML = """
     .fill-day { background: var(--accent); }
     .fill-day.zero { background: rgba(148, 163, 184, 0.25); }
 
+    .perf-summary { display: flex; flex-wrap: wrap; gap: 26px; margin-bottom: 18px; }
+    .perf-summary .v { font-size: 1.6rem; font-weight: 750; letter-spacing: -0.03em; }
+    .perf-summary .l { color: var(--muted); font-size: 0.82rem; margin-top: 2px; }
+    .perf-chart svg { width: 100%; height: auto; display: block; }
+    .perf-legend {
+      display: flex; gap: 20px; margin-top: 12px;
+      font-size: 0.85rem; color: var(--muted); align-items: center; flex-wrap: wrap;
+    }
+    .perf-legend i {
+      display: inline-block; width: 14px; height: 3px;
+      vertical-align: middle; margin-right: 6px; border-radius: 2px;
+    }
+    .line-strat { background: var(--accent); }
+    .line-bench { background: var(--cash); }
+
     @media (max-width: 700px) { .charts { grid-template-columns: 1fr; } }
 
     .footer-note {
@@ -314,6 +329,21 @@ DASHBOARD_HTML = """
         <p class="metric-value" id="avgReturn">--</p>
         <p class="metric-note">Por señal evaluada</p>
       </article>
+    </section>
+
+    <section class="panel">
+      <h2>Rendimiento real (con fees)</h2>
+      <div class="perf-summary" id="perfSummary"><p class="muted">Cargando...</p></div>
+      <div class="perf-chart" id="perfChart"></div>
+      <div class="perf-legend">
+        <span><i class="line-strat"></i>Estrategia</span>
+        <span><i class="line-bench"></i>Buy &amp; hold</span>
+        <span>línea punteada = capital inicial</span>
+      </div>
+      <p class="footer-note">
+        Equity reconstruida de las señales guardadas (BUY/HOLD = en posición, CASH = fuera).
+        No es rendimiento de cartera garantizado ni asesoría.
+      </p>
     </section>
 
     <section class="panel">
@@ -415,20 +445,58 @@ DASHBOARD_HTML = """
       `).join("");
     };
 
+    const renderPerformance = (perf) => {
+      const summary = [
+        { l: "Estrategia", v: pct(perf.strategy_return_pct) },
+        { l: "Buy & hold", v: pct(perf.benchmark_return_pct) },
+        { l: "Diferencia", v: `${perf.difference_pp >= 0 ? "+" : ""}${perf.difference_pp.toFixed(2)} pp` },
+        { l: "Exposición", v: `${perf.exposure_pct}%` },
+        { l: "Max drawdown", v: `${perf.max_drawdown_pct}%` },
+        { l: "Operaciones", v: perf.round_trips },
+      ];
+      document.getElementById("perfSummary").innerHTML = summary
+        .map((item) => `<div><div class="v">${item.v}</div><div class="l">${item.l}</div></div>`)
+        .join("");
+
+      const s = perf.series || [];
+      if (s.length < 2) {
+        document.getElementById("perfChart").innerHTML =
+          '<p class="muted">Aún no hay suficientes datos para la curva.</p>';
+        return;
+      }
+      const W = 1000, H = 300, pad = 8;
+      const vals = s.flatMap((p) => [p.strategy, p.benchmark]).concat([1.0]);
+      const minV = Math.min(...vals), maxV = Math.max(...vals);
+      const span = (maxV - minV) || 1;
+      const x = (i) => (i / (s.length - 1)) * W;
+      const y = (v) => H - pad - ((v - minV) / span) * (H - 2 * pad);
+      const line = (key) => s.map((p, i) => `${x(i).toFixed(1)},${y(p[key]).toFixed(1)}`).join(" ");
+      const yBase = y(1.0).toFixed(1);
+      document.getElementById("perfChart").innerHTML = `
+        <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Curva de equity estrategia vs buy and hold">
+          <line x1="0" y1="${yBase}" x2="${W}" y2="${yBase}" stroke="var(--muted)" stroke-dasharray="6 6" stroke-width="1" opacity="0.5"/>
+          <polyline fill="none" stroke="var(--cash)" stroke-width="2.5" points="${line("benchmark")}"/>
+          <polyline fill="none" stroke="var(--accent)" stroke-width="2.5" points="${line("strategy")}"/>
+        </svg>`;
+    };
+
     async function loadDashboard() {
-      const [statsRes, signalsRes, resultsRes] = await Promise.all([
+      const [statsRes, signalsRes, resultsRes, perfRes] = await Promise.all([
         fetch("/stats"),
         fetch("/signals?pair=BTC%2FUSDT&limit=500"),
         fetch("/tracking/results?limit=500"),
+        fetch("/performance"),
       ]);
 
-      if (!statsRes.ok || !signalsRes.ok || !resultsRes.ok) {
+      if (!statsRes.ok || !signalsRes.ok || !resultsRes.ok || !perfRes.ok) {
         throw new Error("No se pudieron cargar los datos del dashboard.");
       }
 
       const stats = await statsRes.json();
       const signals = await signalsRes.json();
       const results = await resultsRes.json();
+      const performance = await perfRes.json();
+      renderPerformance(performance);
       const resultBySignalId = new Map(results.map((result) => [result.signal_id, result]));
 
       document.getElementById("totalSignals").textContent = stats.total_signals;

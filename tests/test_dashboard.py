@@ -19,6 +19,9 @@ async def test_dashboard_serves_read_only_personal_page() -> None:
     assert 'id="actionChart"' in html
     assert 'id="outcomeChart"' in html
     assert 'id="dailyChart"' in html
+    # Curva de equity real.
+    assert 'id="perfChart"' in html
+    assert 'fetch("/performance")' in html
 
 
 async def test_tracking_results_route_lists_recent_results(monkeypatch) -> None:

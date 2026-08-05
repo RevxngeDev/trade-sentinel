@@ -94,6 +94,26 @@ class BackfillRunRead(BaseModel):
     last_slot: datetime | None
 
 
+class EquityPointRead(BaseModel):
+    timestamp: datetime
+    strategy: float
+    benchmark: float
+
+
+class PerformanceRead(BaseModel):
+    """Equity real reconstruida de la estrategia vs buy & hold (con fees)."""
+
+    strategy_return_pct: float
+    benchmark_return_pct: float
+    difference_pp: float
+    exposure_pct: float
+    max_drawdown_pct: float
+    round_trips: int
+    initial_equity: float
+    final_strategy_equity: float
+    series: list[EquityPointRead]
+
+
 class SignalStatsRead(BaseModel):
     total_signals: int
     evaluated_signals: int

@@ -9,7 +9,10 @@ from typing import Callable
 import pandas as pd
 
 from app.config import settings
+from app.core.performance import compute_equity
 from app.schemas.regime import (
+    EquityPointRead,
+    PerformanceRead,
     SignalRead,
     SignalResultRead,
     SignalStatsRead,
@@ -114,6 +117,29 @@ class TrackerService:
     async def list_results(self, limit: int | None = None) -> list[SignalResultRead]:
         """Return recent paper-trading observations without modifying state."""
         return await self.result_store.list_results(limit or settings.tracking_scan_limit)
+
+    async def get_performance(self) -> PerformanceRead:
+        """Equity real de la estrategia vs buy & hold (con fees). Solo lectura."""
+        signals = await self.signal_store.list_signals(settings.default_symbol, 5000)
+        result = compute_equity(signals)
+        return PerformanceRead(
+            strategy_return_pct=result.strategy_return_pct,
+            benchmark_return_pct=result.benchmark_return_pct,
+            difference_pp=result.difference_pp,
+            exposure_pct=result.exposure_pct,
+            max_drawdown_pct=result.max_drawdown_pct,
+            round_trips=result.round_trips,
+            initial_equity=result.initial_equity,
+            final_strategy_equity=result.final_strategy_equity,
+            series=[
+                EquityPointRead(
+                    timestamp=point.timestamp,
+                    strategy=round(point.strategy, 6),
+                    benchmark=round(point.benchmark, 6),
+                )
+                for point in result.series
+            ],
+        )
 
     async def _forward_exit_price(
         self,

@@ -1,10 +1,21 @@
 from fastapi import APIRouter, HTTPException, Query
 
-from app.schemas.regime import SignalResultRead, SignalStatsRead, TrackingRunRead
+from app.schemas.regime import (
+    PerformanceRead,
+    SignalResultRead,
+    SignalStatsRead,
+    TrackingRunRead,
+)
 from app.services.market_data import MarketDataError
 from app.services.tracker_service import TrackerService
 
 router = APIRouter(tags=["tracking"])
+
+
+@router.get("/performance", response_model=PerformanceRead)
+async def get_performance() -> PerformanceRead:
+    """Equity real de la estrategia vs buy & hold (con fees). Solo lectura."""
+    return await TrackerService().get_performance()
 
 
 @router.post("/tracking/evaluate", response_model=TrackingRunRead)

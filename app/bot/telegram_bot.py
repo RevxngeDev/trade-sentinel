@@ -93,8 +93,8 @@ class TelegramBotService:
 telegram_bot = TelegramBotService()
 
 
-async def send_signal_alert(signal: SignalRead) -> None:
-    """Send a scheduler-created signal only to the configured personal chat."""
+async def send_text_alert(text: str) -> None:
+    """Send a plain text alert only to the configured personal chat."""
     if not settings.telegram_enabled or not settings.telegram_chat_id:
         return
     if not settings.telegram_bot_token:
@@ -103,11 +103,16 @@ async def send_signal_alert(signal: SignalRead) -> None:
 
     bot = Bot(token=settings.telegram_bot_token)
     try:
-        await bot.send_message(chat_id=settings.telegram_chat_id, text=format_signal(signal))
+        await bot.send_message(chat_id=settings.telegram_chat_id, text=text)
     except TelegramError:
-        logger.exception("Telegram signal alert failed")
+        logger.exception("Telegram alert failed")
     finally:
         try:
             await bot.close()
         except TelegramError:
             logger.warning("Telegram bot close request failed")
+
+
+async def send_signal_alert(signal: SignalRead) -> None:
+    """Send a scheduler-created signal only to the configured personal chat."""
+    await send_text_alert(format_signal(signal))

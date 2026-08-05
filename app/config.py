@@ -69,6 +69,11 @@ class Settings(BaseSettings):
     backfill_on_startup: bool = True
     backfill_lookback_days: int = 7
 
+    # Dead-man's switch: si la última señal es más vieja que esto, la captura
+    # probablemente se detuvo -> alerta. Cadencia 4h => 8h = al menos 2 velas
+    # perdidas (el backfill absorbe un fallo puntual; esto avisa de uno sostenido).
+    heartbeat_max_age_hours: int = 8
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
