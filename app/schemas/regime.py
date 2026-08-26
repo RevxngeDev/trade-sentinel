@@ -134,3 +134,25 @@ class AgentInterpretation(BaseModel):
     confidence: int = Field(ge=0, le=100)
     reasoning: str = Field(min_length=1, max_length=1200)
     risk_notes: str = Field(min_length=1, max_length=800)
+
+
+AIOpinionStatus = Literal["ok", "rejected", "error"]
+
+
+class SignalAIOpinionRead(BaseModel):
+    """
+    Opinión del LLM registrada para una señal. Observador puro: nunca entra en
+    la ruta de decisión. Ver app/models/signal.py:SignalAIOpinion.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    signal_id: int
+    status: AIOpinionStatus
+    confidence: int | None
+    reasoning: str | None
+    risk_notes: str | None
+    error_reason: str | None
+    model: str
+    created_at: datetime

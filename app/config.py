@@ -53,6 +53,12 @@ class Settings(BaseSettings):
     groq_model: str = "llama-3.1-8b-instant"
     ai_max_retries: int = 2
 
+    # Registro de opiniones del LLM por señal capturada EN VIVO (observador puro:
+    # se guardan pero no tocan la decisión). Sirve para medir hacia adelante si la
+    # IA aporta, ya que un LLM no se puede validar hacia atrás sin lookahead.
+    # Off por defecto: consume cuota de Groq y hace red.
+    ai_opinion_logging_enabled: bool = False
+
     # Telegram is disabled until a backend-only bot token is configured.
     telegram_enabled: bool = False
     telegram_bot_token: str = ""

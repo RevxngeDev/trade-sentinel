@@ -9,7 +9,7 @@ from typing import Any, Protocol
 from supabase import Client
 
 from app.core.supabase_client import get_supabase_client
-from app.schemas.regime import SignalRead, SignalResultRead
+from app.schemas.regime import SignalAIOpinionRead, SignalRead, SignalResultRead
 
 
 class SignalStore(Protocol):
@@ -32,6 +32,14 @@ class SignalResultStore(Protocol):
     ) -> SignalResultRead | None: ...
 
     async def list_results(self, limit: int) -> list[SignalResultRead]: ...
+
+
+class AIOpinionStore(Protocol):
+    async def insert_if_absent(
+        self, payload: dict[str, Any]
+    ) -> SignalAIOpinionRead | None: ...
+
+    async def list_opinions(self, limit: int) -> list[SignalAIOpinionRead]: ...
 
 
 class SupabaseSignalStore:
@@ -156,3 +164,50 @@ class SupabaseSignalResultStore:
 
         response = await asyncio.to_thread(fetch)
         return [SignalResultRead.model_validate(item) for item in response.data]
+
+
+class SupabaseAIOpinionStore:
+    """
+    Persiste opiniones del LLM sobre señales ya guardadas.
+
+    Solo escribe y lee: nada en la ruta de decisión consulta esta tabla.
+    """
+
+    def __init__(self, client: Client | None = None) -> None:
+        self._client = client
+
+    @property
+    def client(self) -> Client:
+        return self._client or get_supabase_client()
+
+    async def insert_if_absent(
+        self, payload: dict[str, Any]
+    ) -> SignalAIOpinionRead | None:
+        def insert() -> Any:
+            return (
+                self.client.table("signal_ai_opinions")
+                .upsert(
+                    payload,
+                    on_conflict="signal_id",
+                    ignore_duplicates=True,
+                )
+                .execute()
+            )
+
+        response = await asyncio.to_thread(insert)
+        if not response.data:
+            return None
+        return SignalAIOpinionRead.model_validate(response.data[0])
+
+    async def list_opinions(self, limit: int) -> list[SignalAIOpinionRead]:
+        def fetch() -> Any:
+            return (
+                self.client.table("signal_ai_opinions")
+                .select("*")
+                .order("signal_id", desc=True)
+                .limit(limit)
+                .execute()
+            )
+
+        response = await asyncio.to_thread(fetch)
+        return [SignalAIOpinionRead.model_validate(item) for item in response.data]

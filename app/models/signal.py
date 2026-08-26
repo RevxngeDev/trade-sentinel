@@ -83,3 +83,42 @@ class SignalResult(Base):
     )
 
     signal: Mapped["Signal"] = relationship(back_populates="results")
+
+
+class SignalAIOpinion(Base):
+    """
+    Opinión del LLM sobre una señal, registrada SIN afectar a la decisión.
+
+    Existe para poder medir hacia adelante si la IA aporta: no se puede validar
+    hacia atrás porque el modelo ya "conoce" el pasado (su entrenamiento incluye
+    lo que ocurrió después de cualquier vela histórica). Acumulando opiniones
+    emitidas ANTES de conocer el resultado se podrá responder con datos si
+    filtrar por confianza habría mejorado el track record.
+
+    NUNCA debe leerse desde la ruta de decisión. Es un observador.
+    """
+
+    __tablename__ = "signal_ai_opinions"
+    __table_args__ = (
+        UniqueConstraint("signal_id", name="uq_signal_ai_opinion_signal_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    signal_id: Mapped[int] = mapped_column(
+        ForeignKey("signals.id", ondelete="CASCADE"), index=True
+    )
+
+    # ok = interpretación válida | rejected = la barrera la tumbó | error = fallo técnico.
+    # Los fallos se guardan a propósito: su frecuencia también es un dato.
+    status: Mapped[str] = mapped_column(String(16))
+
+    confidence: Mapped[int | None]
+    reasoning: Mapped[str | None] = mapped_column(String, nullable=True)
+    risk_notes: Mapped[str | None] = mapped_column(String, nullable=True)
+    error_reason: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    model: Mapped[str] = mapped_column(String(64))
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

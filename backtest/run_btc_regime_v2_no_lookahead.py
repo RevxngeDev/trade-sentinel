@@ -7,7 +7,7 @@ from typing import Any
 import pandas as pd
 
 from app.core.signals import build_regime_signals
-from backtest.common import DATA_DIR, load_pair_data
+from backtest.common import DATA_DIR, generate_walk_forward_windows, load_pair_data
 from backtest.engine import build_metrics, run_position_backtest
 
 
@@ -42,41 +42,8 @@ def split_train_test(
     }
 
 
-def generate_walk_forward_windows(
-    df_1h: pd.DataFrame,
-    *,
-    train_days: int = 270,
-    test_days: int = 60,
-) -> list[dict[str, Any]]:
-    start = df_1h.index.min()
-    end = df_1h.index.max()
-
-    windows: list[dict[str, Any]] = []
-    train_start = start
-    fold = 1
-
-    while True:
-        train_end = train_start + pd.Timedelta(days=train_days)
-        test_start = train_end
-        test_end = test_start + pd.Timedelta(days=test_days)
-
-        if test_end > end:
-            break
-
-        windows.append(
-            {
-                "fold": fold,
-                "train_start": train_start,
-                "train_end": train_end,
-                "test_start": test_start,
-                "test_end": test_end,
-            }
-        )
-
-        train_start = train_start + pd.Timedelta(days=test_days)
-        fold += 1
-
-    return windows
+# `generate_walk_forward_windows` vive en backtest.common: la comparten este
+# script y el walk-forward multi-activo.
 
 
 # ============================================================

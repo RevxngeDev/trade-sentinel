@@ -9,12 +9,31 @@ from apscheduler.triggers.cron import CronTrigger
 
 from app.bot.telegram_bot import send_signal_alert
 from app.config import settings
+from app.services.ai_opinion_service import AIOpinionService
 from app.services.signal_service import SignalService
 from app.services.tracker_service import TrackerService
 
 logger = logging.getLogger(__name__)
 
 scheduler = AsyncIOScheduler(timezone="UTC")
+
+
+async def _record_ai_opinion(stored) -> None:
+    """
+    Registra la opinión del LLM DESPUÉS de que la señal esté decidida y guardada.
+
+    Aislado en su propio try/except a propósito: el registro es telemetría y no
+    puede abortar la captura ni impedir la alerta. Sin este aislamiento, un fallo
+    inesperado (incluso al construir el servicio) caería en el except general del
+    job y se saltaría `send_signal_alert`.
+
+    Solo se llama con capturas EN VIVO: opinar sobre una señal de backfill sería
+    hacerlo a posteriori y contaminaría la muestra forward.
+    """
+    try:
+        await AIOpinionService().record_for_signal(stored)
+    except Exception:  # noqa: BLE001 - un observador nunca frena lo observado
+        logger.exception("Fallo registrando la opinión de IA; la captura sigue.")
 
 
 async def capture_signal_job() -> None:
@@ -29,6 +48,7 @@ async def capture_signal_job() -> None:
                 stored.pair,
                 stored.signal_timestamp,
             )
+            await _record_ai_opinion(stored)
             await send_signal_alert(stored)
         else:
             logger.info("Signal for this candle already exists.")
