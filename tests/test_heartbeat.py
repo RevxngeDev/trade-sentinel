@@ -4,44 +4,171 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import app.jobs.heartbeat as heartbeat
+from app.config import Settings, settings
+
+
+NOW = datetime(2026, 8, 28, 18, 0, tzinfo=timezone.utc)
 
 
 class FakeStore:
-    def __init__(self, latest_ts: datetime | None) -> None:
-        self.latest_ts = latest_ts
+    def __init__(self, timestamps: list[datetime]) -> None:
+        self.timestamps = timestamps
 
     async def list_signals(self, pair: str, limit: int):
-        if self.latest_ts is None:
-            return []
-        return [SimpleNamespace(signal_timestamp=self.latest_ts)]
+        return [SimpleNamespace(signal_timestamp=ts) for ts in self.timestamps]
 
 
-NOW = datetime(2026, 8, 3, 18, 0, tzinfo=timezone.utc)
+def _complete_boundaries(*, now: datetime = NOW, days: int = 9) -> list[datetime]:
+    """Todas las fronteras 4h de los últimos `days` días: un registro sano."""
+    start = now - timedelta(days=days)
+    start = start.replace(minute=0, second=0, microsecond=0)
+    start -= timedelta(hours=start.hour % 4)
+
+    slots: list[datetime] = []
+    current = start
+    while current <= now:
+        slots.append(current)
+        current += timedelta(hours=4)
+    return slots
 
 
-async def _run(latest_ts):
+async def _run(timestamps: list[datetime], now: datetime = NOW):
     alerts: list[str] = []
 
     async def alert(text: str) -> None:
         alerts.append(text)
 
-    status = await heartbeat.check(store=FakeStore(latest_ts), alert=alert, now=NOW)
+    status = await heartbeat.check(store=FakeStore(timestamps), alert=alert, now=now)
     return status, alerts
 
 
-async def test_ok_when_recent() -> None:
-    status, alerts = await _run(NOW - timedelta(hours=3))
+# ============================================================
+# Umbral de "detenida"
+# ============================================================
+
+
+def test_stale_threshold_is_calibrated_to_actions_delays() -> None:
+    """
+    8h producía falsas alarmas: los crons de Actions se retrasan 9-14h y el
+    backfill lo cura solo. Ver DECISIONS 2026-08-26.
+    """
+    assert Settings(_env_file=None).heartbeat_max_age_hours == 14
+
+
+async def test_ok_when_recent_and_complete() -> None:
+    status, alerts = await _run(_complete_boundaries())
     assert status == "ok"
     assert alerts == []
 
 
-async def test_alerts_when_stale() -> None:
-    status, alerts = await _run(NOW - timedelta(hours=12))
+async def test_a_nine_hour_delay_no_longer_alerts() -> None:
+    """Regresión de las 2 falsas alarmas reales del 27 y 28 de agosto."""
+    boundaries = [ts for ts in _complete_boundaries() if ts <= NOW - timedelta(hours=9)]
+
+    status, alerts = await _run(boundaries)
+
+    assert status == "ok"
+    assert alerts == []
+
+
+async def test_alerts_when_truly_stale() -> None:
+    boundaries = [ts for ts in _complete_boundaries() if ts <= NOW - timedelta(hours=20)]
+
+    status, alerts = await _run(boundaries)
+
+    assert status == "stale"
+    assert "DETENIDA" in alerts[0]
+
+
+async def test_alerts_when_empty() -> None:
+    status, alerts = await _run([])
+    assert status == "empty"
+    assert len(alerts) == 1
+
+
+# ============================================================
+# Huecos en el registro
+# ============================================================
+
+
+async def test_alerts_on_a_hole_the_backfill_left() -> None:
+    boundaries = _complete_boundaries()
+    hole = NOW - timedelta(days=3)
+    hole = hole.replace(minute=0, second=0, microsecond=0)
+    hole -= timedelta(hours=hole.hour % 4)
+    boundaries.remove(hole)
+
+    status, alerts = await _run(boundaries)
+
+    assert status == "gaps"
+    assert "HUECOS" in alerts[0]
+    assert f"{hole:%m-%d %H:%M}" in alerts[0]
+
+
+async def test_recent_missing_boundary_is_not_a_hole() -> None:
+    """
+    Una frontera recién cerrada puede estar esperando a la próxima corrida.
+    Reclamarla sería reintroducir la falsa alarma por otra vía.
+    """
+    boundaries = _complete_boundaries()
+    del boundaries[-1]
+
+    status, alerts = await _run(boundaries)
+
+    assert status == "ok"
+    assert alerts == []
+
+
+async def test_stale_is_reported_before_gaps() -> None:
+    """Si no entra nada, el hueco tampoco se va a rellenar: manda la causa."""
+    boundaries = [ts for ts in _complete_boundaries() if ts <= NOW - timedelta(hours=20)]
+    del boundaries[10]
+
+    status, alerts = await _run(boundaries)
+
     assert status == "stale"
     assert len(alerts) == 1
 
 
-async def test_alerts_when_empty() -> None:
-    status, alerts = await _run(None)
-    assert status == "empty"
-    assert len(alerts) == 1
+# ============================================================
+# Helpers puros
+# ============================================================
+
+
+def test_expected_slots_are_four_hour_boundaries() -> None:
+    slots = heartbeat.expected_four_hour_slots(
+        since=NOW - timedelta(days=1),
+        until=NOW,
+    )
+
+    assert len(slots) == 6
+    assert all(slot.hour % 4 == 0 and slot.minute == 0 for slot in slots)
+    assert all(NOW - timedelta(days=1) <= slot <= NOW for slot in slots)
+
+
+def test_find_missing_slots_respects_the_grace_window() -> None:
+    stored: set[datetime] = set()
+
+    missing = heartbeat.find_missing_slots(
+        stored,
+        now=NOW,
+        lookback_days=1,
+        grace_hours=14,
+    )
+
+    # Con todo vacío solo se reclama lo anterior a la ventana de gracia.
+    assert missing
+    assert max(missing) <= NOW - timedelta(hours=14)
+
+
+def test_find_missing_slots_returns_nothing_when_complete() -> None:
+    stored = set(_complete_boundaries())
+
+    missing = heartbeat.find_missing_slots(
+        stored,
+        now=NOW,
+        lookback_days=settings.backfill_lookback_days,
+        grace_hours=settings.heartbeat_max_age_hours,
+    )
+
+    assert missing == []

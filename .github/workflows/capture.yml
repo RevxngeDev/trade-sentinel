@@ -1,11 +1,17 @@
 name: Capture signal
 
-# Cron de GitHub Actions (UTC). Cada 4 h, al minuto 1, igual que el scheduler local.
-# Nota: el cron de Actions puede retrasarse o saltarse bajo carga; el backfill del
-# job rellena cualquier vela que se haya perdido en la siguiente corrida.
+# Cron de GitHub Actions (UTC). Cada 2 h al minuto 23.
+#
+# Por qué 2h y no 4h (cambiado 2026-08-26): los crons de Actions son best-effort
+# y se observaron retrasos de 9-14 h con la cadencia de 4 h, lo que disparó falsas
+# alarmas del heartbeat. Correr cada 2 h da el DOBLE de oportunidades de ponerse al
+# día; como el backfill deduplica por vela, las corridas extra son inofensivas.
+#
+# Por qué el minuto 23: el minuto 0-1 es el slot más congestionado de la
+# plataforma (todo el mundo programa ahí) y es donde más se encolan los retrasos.
 on:
   schedule:
-    - cron: "1 */4 * * *"
+    - cron: "23 */2 * * *"
   workflow_dispatch: {}
 
 concurrency:

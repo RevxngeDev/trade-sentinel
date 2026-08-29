@@ -76,9 +76,13 @@ class Settings(BaseSettings):
     backfill_lookback_days: int = 7
 
     # Dead-man's switch: si la última señal es más vieja que esto, la captura
-    # probablemente se detuvo -> alerta. Cadencia 4h => 8h = al menos 2 velas
-    # perdidas (el backfill absorbe un fallo puntual; esto avisa de uno sostenido).
-    heartbeat_max_age_hours: int = 8
+    # probablemente se detuvo -> alerta.
+    # Calibrado a 14h el 2026-08-26 tras 2 falsas alarmas: el cron de GitHub
+    # Actions se retrasa (se observaron huecos de 9-14h) y el backfill lo cura
+    # solo, así que 8h avisaba de algo que se arreglaba sin intervención. El
+    # coste de detectar tarde es bajo (el backfill repara hasta 7 días atrás);
+    # el de la fatiga de alertas es alto: se ignora el aviso que sí importa.
+    heartbeat_max_age_hours: int = 14
 
     model_config = SettingsConfigDict(
         env_file=".env",
