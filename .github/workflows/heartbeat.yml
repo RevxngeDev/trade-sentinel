@@ -35,3 +35,8 @@ jobs:
           TELEGRAM_ENABLED: "true"
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # El heartbeat NO llama a Groq: solo lee Supabase. Necesita este flag
+          # para saber que el registro de opiniones SE ESPERA activo y, por
+          # tanto, que una racha de fallos es una avería y no el subsistema
+          # apagado a propósito. Sin él, la vigilancia de IA no se ejecutaría.
+          AI_OPINION_LOGGING_ENABLED: "true"

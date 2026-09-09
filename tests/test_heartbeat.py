@@ -172,3 +172,122 @@ def test_find_missing_slots_returns_nothing_when_complete() -> None:
     )
 
     assert missing == []
+
+
+# ============================================================
+# Vigilancia del registro de IA
+#
+# Contexto: el 2026-09-09 se descubrió que Groq había retirado el modelo y el
+# registro llevaba ~2 semanas guardando solo errores sin que nadie avisara.
+# ============================================================
+
+
+class FakeOpinionStore:
+    def __init__(self, statuses: list[str], reason: str = "404 model not found") -> None:
+        self.statuses = statuses
+        self.reason = reason
+
+    async def list_opinions(self, limit: int):
+        return [
+            SimpleNamespace(
+                status=status,
+                error_reason=self.reason if status != "ok" else None,
+            )
+            for status in self.statuses[:limit]
+        ]
+
+
+async def _run_ai(statuses: list[str]):
+    alerts: list[str] = []
+
+    async def alert(text: str) -> None:
+        alerts.append(text)
+
+    broken = await heartbeat.ai_logging_is_broken(
+        FakeOpinionStore(statuses), alert=alert
+    )
+    return broken, alerts
+
+
+async def test_sustained_ai_failure_alerts(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "ai_opinion_logging_enabled", True)
+
+    broken, alerts = await _run_ai(["error"] * settings.heartbeat_ai_sample_size)
+
+    assert broken is True
+    assert len(alerts) == 1
+    assert "404 model not found" in alerts[0]
+    # Debe dejar claro que la captura sigue sana, para no provocar un susto.
+    assert "NO está afectada" in alerts[0]
+
+
+async def test_one_recovered_opinion_is_not_an_outage(monkeypatch) -> None:
+    """Un timeout suelto se recupera solo: avisar de eso es fatiga de alertas."""
+    monkeypatch.setattr(settings, "ai_opinion_logging_enabled", True)
+
+    statuses = ["ok"] + ["error"] * (settings.heartbeat_ai_sample_size - 1)
+    broken, alerts = await _run_ai(statuses)
+
+    assert broken is False
+    assert alerts == []
+
+
+async def test_too_few_opinions_does_not_alert(monkeypatch) -> None:
+    """Recién activado no hay muestra para distinguir avería de arranque."""
+    monkeypatch.setattr(settings, "ai_opinion_logging_enabled", True)
+
+    broken, alerts = await _run_ai(["error", "error"])
+
+    assert broken is False
+    assert alerts == []
+
+
+async def test_disabled_logging_is_not_watched(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "ai_opinion_logging_enabled", False)
+
+    broken, alerts = await _run_ai(["error"] * 20)
+
+    assert broken is False
+    assert alerts == []
+
+
+async def test_capture_problems_are_reported_before_ai_problems(monkeypatch) -> None:
+    """
+    Una captura detenida es más grave: si no entran señales, tampoco hay
+    opiniones que registrar. El aviso de IA no debe tapar el de captura.
+    """
+    monkeypatch.setattr(settings, "ai_opinion_logging_enabled", True)
+    alerts: list[str] = []
+
+    async def alert(text: str) -> None:
+        alerts.append(text)
+
+    stale = [NOW - timedelta(hours=40)]
+    status = await heartbeat.check(
+        store=FakeStore(stale),
+        alert=alert,
+        now=NOW,
+        opinion_store=FakeOpinionStore(["error"] * 20),
+    )
+
+    assert status == "stale"
+    assert len(alerts) == 1
+    assert "DETENIDA" in alerts[0]
+
+
+async def test_healthy_capture_still_surfaces_broken_ai(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "ai_opinion_logging_enabled", True)
+    alerts: list[str] = []
+
+    async def alert(text: str) -> None:
+        alerts.append(text)
+
+    status = await heartbeat.check(
+        store=FakeStore(_complete_boundaries()),
+        alert=alert,
+        now=NOW,
+        opinion_store=FakeOpinionStore(["error"] * 20),
+    )
+
+    assert status == "ai_failing"
+    assert len(alerts) == 1

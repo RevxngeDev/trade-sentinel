@@ -27,7 +27,11 @@ from typing import Awaitable, Callable
 
 from app.bot.telegram_bot import send_text_alert
 from app.config import settings
-from app.services.signal_store import SupabaseSignalStore
+from app.services.signal_store import (
+    AIOpinionStore,
+    SupabaseAIOpinionStore,
+    SupabaseSignalStore,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -81,8 +85,9 @@ async def check(
     store: SupabaseSignalStore | None = None,
     alert: Callable[[str], Awaitable[None]] | None = None,
     now: datetime | None = None,
+    opinion_store: AIOpinionStore | None = None,
 ) -> str:
-    """Devuelve 'ok' | 'stale' | 'gaps' | 'empty'. Alerta si no es 'ok'."""
+    """Devuelve 'ok' | 'stale' | 'gaps' | 'empty' | 'ai_failing'. Alerta si no es 'ok'."""
     store = store or SupabaseSignalStore()
     alert = alert or send_text_alert
     now = now or datetime.now(timezone.utc)
@@ -127,12 +132,58 @@ async def check(
         )
         return "gaps"
 
+    if await ai_logging_is_broken(opinion_store, alert=alert):
+        return "ai_failing"
+
     logger.info(
         "Heartbeat OK: última señal hace %.1f h, sin huecos en %d días.",
         age_hours,
         settings.backfill_lookback_days,
     )
     return "ok"
+
+
+async def ai_logging_is_broken(
+    store: AIOpinionStore | None = None,
+    *,
+    alert: Callable[[str], Awaitable[None]] | None = None,
+) -> bool:
+    """
+    Detecta un fallo SOSTENIDO del registro de opiniones de IA.
+
+    Existe por una lección concreta: el 2026-09-09 se descubrió que Groq había
+    retirado el modelo configurado y el registro llevaba ~2 semanas guardando
+    solo `status=error`. Nadie se enteró porque nada lo vigilaba: el diseño
+    "guardar los fallos en vez de tragárselos" hizo el problema visible, pero
+    visible no es lo mismo que notificado.
+
+    Solo alerta ante un fallo sostenido (todas las últimas N fallidas), no ante
+    un error suelto: un timeout puntual se recupera solo y avisar de eso es
+    justo la fatiga de alertas que se corrigió el 08-28.
+    """
+    if not settings.ai_opinion_logging_enabled:
+        return False
+
+    store = store or SupabaseAIOpinionStore()
+    alert = alert or send_text_alert
+
+    recent = await store.list_opinions(settings.heartbeat_ai_sample_size)
+
+    if len(recent) < settings.heartbeat_ai_sample_size:
+        # Muestra insuficiente para distinguir avería de arranque reciente.
+        return False
+
+    failures = [opinion for opinion in recent if opinion.status != "ok"]
+    if len(failures) < len(recent):
+        return False
+
+    reason = (failures[0].error_reason or "sin detalle")[:160]
+    await alert(
+        f"⚠️ TradeSentinel: el registro de opiniones de IA lleva {len(recent)} "
+        f"intentos seguidos fallando. Motivo: {reason}. "
+        "La captura de señales NO está afectada, pero no se acumula muestra de IA."
+    )
+    return True
 
 
 def main() -> None:

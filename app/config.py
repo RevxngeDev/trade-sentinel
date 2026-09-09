@@ -50,7 +50,12 @@ class Settings(BaseSettings):
 
     # AI interpretation is optional and never controls a signal action.
     groq_api_key: str = ""
-    groq_model: str = "llama-3.1-8b-instant"
+    # 2026-09-09: Groq retiró toda la familia Llama; `llama-3.1-8b-instant` empezó
+    # a devolver 404 y el registro de opiniones estuvo ~2 semanas guardando solo
+    # errores. Verificado en vivo que este modelo responde y pasa las barreras
+    # interpretativas. Los IDs de modelo de un proveedor CADUCAN: si vuelve a dar
+    # 404, listar los disponibles con `client.models.list()` antes de elegir.
+    groq_model: str = "openai/gpt-oss-20b"
     ai_max_retries: int = 2
 
     # Registro de opiniones del LLM por señal capturada EN VIVO (observador puro:
@@ -83,6 +88,12 @@ class Settings(BaseSettings):
     # coste de detectar tarde es bajo (el backfill repara hasta 7 días atrás);
     # el de la fatiga de alertas es alto: se ignora el aviso que sí importa.
     heartbeat_max_age_hours: int = 14
+
+    # Cuántas opiniones de IA recientes deben fallar SEGUIDAS para avisar. Alto
+    # a propósito: un error suelto (timeout, rate limit) se recupera solo y
+    # avisar de eso reintroduce la fatiga de alertas. Lo que hay que cazar es la
+    # avería sostenida — p.ej. un ID de modelo retirado por el proveedor.
+    heartbeat_ai_sample_size: int = 6
 
     model_config = SettingsConfigDict(
         env_file=".env",
