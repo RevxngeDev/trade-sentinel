@@ -32,6 +32,20 @@ from app.services.signal_store import AIOpinionStore, SupabaseAIOpinionStore
 logger = logging.getLogger(__name__)
 
 
+def describe_failure(exc: BaseException) -> str:
+    """
+    Motivo del fallo incluyendo la causa raíz.
+
+    `AIInterpretationService` envuelve el último error en un mensaje genérico
+    ("did not return valid schema-conforming JSON") con `raise ... from`. Guardar
+    solo ese mensaje escondía QUÉ barrera saltó (lenguaje de acción, valores
+    numéricos, schema...), que es justo lo que hace falta para mejorar el agente.
+    """
+    cause = exc.__cause__
+    text = f"{exc} <- {type(cause).__name__}: {cause}" if cause else str(exc)
+    return text[:500]
+
+
 class AIOpinionService:
     """Pide una interpretación al LLM y la guarda junto a la señal."""
 
@@ -87,10 +101,10 @@ class AIOpinionService:
             # La barrera interpretativa tumbó la respuesta tras los reintentos.
             # Su frecuencia es un dato en sí misma, así que se guarda.
             logger.warning("Opinión de IA rechazada para la señal %s: %s", signal.id, exc)
-            return {**base, "status": "rejected", "error_reason": str(exc)[:500]}
+            return {**base, "status": "rejected", "error_reason": describe_failure(exc)}
         except Exception as exc:  # noqa: BLE001 - red, cuota, timeout...
             logger.warning("Opinión de IA falló para la señal %s: %s", signal.id, exc)
-            return {**base, "status": "error", "error_reason": str(exc)[:500]}
+            return {**base, "status": "error", "error_reason": describe_failure(exc)}
 
         return {
             **base,

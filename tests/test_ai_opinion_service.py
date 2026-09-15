@@ -131,6 +131,24 @@ async def test_records_guardrail_rejection_instead_of_dropping_it(enabled) -> No
     assert store.saved[0]["confidence"] is None
 
 
+async def test_rejection_keeps_the_root_cause(enabled) -> None:
+    """
+    El servicio envuelve el fallo en un mensaje genérico; sin la causa raíz no
+    se sabe qué barrera saltó (visto en producción el 2026-09-15).
+    """
+    inner = AIInterpretationError("AI interpretation contained prohibited action language")
+    outer = AIInterpretationError("AI interpretation did not return valid schema-conforming JSON")
+    outer.__cause__ = inner
+
+    store = FakeStore()
+    await AIOpinionService(FakeInterpreter(error=outer), store).record_for_signal(_signal())
+
+    reason = store.saved[0]["error_reason"]
+    assert "schema-conforming" in reason
+    assert "prohibited action language" in reason
+    assert len(reason) <= 500
+
+
 async def test_records_technical_failure_as_error(enabled) -> None:
     interpreter = FakeInterpreter(error=RuntimeError("groq timeout"))
     store = FakeStore()
