@@ -12,6 +12,7 @@ from app.bot.formatters import format_signal
 from app.bot.handlers import (
     analyze_command,
     help_command,
+    ask_command,
     interpret_command,
     signals_command,
     stats_command,
@@ -38,6 +39,7 @@ class TelegramBotService:
         application.add_handler(CommandHandler("senales", signals_command))
         application.add_handler(CommandHandler("stats", stats_command))
         application.add_handler(CommandHandler("interpretar", interpret_command))
+        application.add_handler(CommandHandler("preguntar", ask_command))
         return application
 
     async def start(self) -> bool:

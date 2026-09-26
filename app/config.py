@@ -48,6 +48,11 @@ class Settings(BaseSettings):
     tracking_horizon_hours: int = 4
     tracking_scan_limit: int = 500
 
+    # Techo para métricas que reportan TOTALES (get_stats, performance). Debe
+    # superar con holgura el histórico: si trunca, el total mostrado es falso.
+    # A ~8 señales/día, 20000 cubre varios años.
+    stats_scan_limit: int = 20000
+
     # AI interpretation is optional and never controls a signal action.
     groq_api_key: str = ""
     # 2026-09-09: Groq retiró toda la familia Llama; `llama-3.1-8b-instant` empezó

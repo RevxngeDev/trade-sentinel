@@ -85,15 +85,32 @@ class SupabaseSignalStore:
         response = await asyncio.to_thread(fetch)
         return SignalRead.model_validate(response.data[0]) if response.data else None
 
+    # PostgREST corta las respuestas en `max-rows` (1000 por defecto en Supabase)
+    # y NO avisa: pedir 5000 devuelve 1000 en silencio. Con la equity reconstruida
+    # eso sería grave — el benchmark arrancaría a mitad del historial y el
+    # "rendimiento real" saldría mal sin que nada fallara. Por eso se pagina.
+    PAGE_SIZE = 1000
+
     async def list_signals(self, pair: str | None, limit: int) -> list[SignalRead]:
-        def fetch() -> Any:
+        def fetch(offset: int, size: int) -> Any:
             query = self.client.table("signals").select("*")
             if pair:
                 query = query.eq("pair", pair)
-            return query.order("signal_timestamp", desc=True).limit(limit).execute()
+            return (
+                query.order("signal_timestamp", desc=True)
+                .range(offset, offset + size - 1)
+                .execute()
+            )
 
-        response = await asyncio.to_thread(fetch)
-        return [SignalRead.model_validate(item) for item in response.data]
+        rows: list[Any] = []
+        while len(rows) < limit:
+            page = min(self.PAGE_SIZE, limit - len(rows))
+            response = await asyncio.to_thread(fetch, len(rows), page)
+            rows.extend(response.data)
+            if len(response.data) < page:
+                break
+
+        return [SignalRead.model_validate(item) for item in rows]
 
     async def get_by_id(self, signal_id: int) -> SignalRead | None:
         def fetch() -> Any:
@@ -152,18 +169,28 @@ class SupabaseSignalResultStore:
             return None
         return SignalResultRead.model_validate(response.data[0])
 
+    # Mismo corte silencioso de PostgREST que en las señales (ver PAGE_SIZE allí).
+    PAGE_SIZE = 1000
+
     async def list_results(self, limit: int) -> list[SignalResultRead]:
-        def fetch() -> Any:
+        def fetch(offset: int, size: int) -> Any:
             return (
                 self.client.table("signal_results")
                 .select("*")
                 .order("evaluated_at", desc=True)
-                .limit(limit)
+                .range(offset, offset + size - 1)
                 .execute()
             )
 
-        response = await asyncio.to_thread(fetch)
-        return [SignalResultRead.model_validate(item) for item in response.data]
+        rows: list[Any] = []
+        while len(rows) < limit:
+            page = min(self.PAGE_SIZE, limit - len(rows))
+            response = await asyncio.to_thread(fetch, len(rows), page)
+            rows.extend(response.data)
+            if len(response.data) < page:
+                break
+
+        return [SignalResultRead.model_validate(item) for item in rows]
 
 
 class SupabaseAIOpinionStore:

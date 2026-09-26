@@ -16,6 +16,7 @@ from app.bot.formatters import (
 )
 from app.config import settings
 from app.services.ai_agent import AIInterpretationError, AIInterpretationService
+from app.services.assistant import AssistantError, AssistantService
 from app.services.market_data import MarketDataError
 from app.services.signal_service import SignalService
 from app.services.tracker_service import TrackerService
@@ -65,9 +66,44 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/analizar BTC - analiza una señal determinista sin guardarla\n"
         "/senales - muestra señales almacenadas\n"
         "/stats - muestra métricas de paper trading\n"
-        "/interpretar <id> - explica una señal almacenada con IA\n\n"
+        "/interpretar <id> - explica una señal almacenada con IA\n"
+        "/preguntar <pregunta> - pregunta sobre el proyecto y tu historial\n\n"
         "El bot no ejecuta operaciones ni garantiza resultados."
     )
+
+
+async def ask_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Asistente del proyecto: consulta datos reales y la documentación ingestada.
+
+    No predice precios ni da consejo financiero: esas barreras están en el prompt
+    del asistente y en el hecho de que el modelo solo ve lo que devuelven las
+    herramientas de solo lectura.
+    """
+    message = update.effective_message
+    if message is None or not await _require_authorized_chat(update):
+        return
+
+    question = " ".join(context.args).strip() if context.args else ""
+    if not question:
+        await message.reply_text(
+            "Uso: /preguntar <pregunta>\n"
+            "Ejemplos:\n"
+            "  /preguntar como voy frente a comprar y mantener\n"
+            "  /preguntar por que se descarto el apalancamiento"
+        )
+        return
+
+    try:
+        await _show_typing(update, context)
+        answer = await AssistantService().ask(question)
+        await message.reply_text(answer.text)
+    except AssistantError as exc:
+        logger.warning("Assistant could not answer: %s", exc)
+        await message.reply_text("No pude responder a eso. Prueba a reformular la pregunta.")
+    except Exception:  # noqa: BLE001 - avoid leaking backend details to Telegram
+        logger.exception("Telegram ask command failed")
+        await message.reply_text("Error temporal del asistente. Inténtalo más tarde.")
 
 
 async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

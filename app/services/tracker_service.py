@@ -82,8 +82,12 @@ class TrackerService:
         )
 
     async def get_stats(self) -> SignalStatsRead:
-        signals = await self.signal_store.list_signals(None, settings.tracking_scan_limit)
-        results = await self.result_store.list_results(settings.tracking_scan_limit)
+        # `stats_scan_limit`, NO `tracking_scan_limit`: este último acota el
+        # escaneo de pendientes, pero aquí `total_signals` se presenta como EL
+        # total. Con 500 el asistente llegó a afirmar "500 señales totales"
+        # habiendo ~850 — un número falso dicho con total seguridad.
+        signals = await self.signal_store.list_signals(None, settings.stats_scan_limit)
+        results = await self.result_store.list_results(settings.stats_scan_limit)
 
         signal_by_id = {signal.id: signal for signal in signals}
         evaluated = [result for result in results if result.signal_id in signal_by_id]
