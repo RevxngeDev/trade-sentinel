@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.core.knowledge import Chunk, split_markdown
+from app.core.knowledge import Chunk, split_markdown, to_or_tsquery
 
 
 def _sections(chunks: list[Chunk]) -> list[str]:
@@ -140,3 +140,35 @@ def test_char_count_matches_content() -> None:
     chunks = split_markdown("# T\n\nhola\n", source="X.md")
 
     assert chunks[0].char_count == len(chunks[0].content)
+
+
+# ============================================================
+# Consulta de respaldo con OR
+#
+# Contexto: una búsqueda de varias palabras reventaba contra Postgres con
+# "syntax error in tsquery" (visto en vivo el 2026-09-26). El LLM manda siempre
+# lenguaje natural, así que habría fallado constantemente.
+# ============================================================
+
+
+def test_multiword_query_becomes_a_valid_or_expression() -> None:
+    assert to_or_tsquery("corpus ingesta") == "corpus | ingesta"
+
+
+def test_tsquery_operators_are_stripped() -> None:
+    """`&`, `|`, `!`, `:` y paréntesis hacen fallar la consulta si pasan crudos."""
+    result = to_or_tsquery("apalancamiento & (riesgo | drawdown)!:")
+
+    assert result == "apalancamiento | riesgo | drawdown"
+    for character in "&!():":
+        assert character not in result
+
+
+def test_accents_and_hyphens_survive() -> None:
+    """'vol-targeting' y 'por qué' son términos reales del corpus."""
+    assert to_or_tsquery("vol-targeting por qué") == "vol-targeting | por | qué"
+
+
+def test_empty_or_punctuation_only_query_is_empty() -> None:
+    assert to_or_tsquery("") == ""
+    assert to_or_tsquery("¿? ...") == ""

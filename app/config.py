@@ -3,7 +3,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     project_name: str = "TradeSentinel"
-    environment: str = "development"
 
     exchange_id: str = "binance"
 
@@ -27,8 +26,6 @@ class Settings(BaseSettings):
     # Timeframes de la estrategia de régimen.
     regime_base_timeframe: str = "4h"      # régimen
     regime_exec_timeframe: str = "1h"      # ejecución / exit buffer
-
-    min_confidence: int = 65
 
     # El runtime NO usa SQLAlchemy: persiste vía supabase-py (HTTP). Estos URLs
     # son SOLO para Alembic (esquema/migraciones). Por defecto SQLite local.

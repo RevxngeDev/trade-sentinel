@@ -32,9 +32,19 @@ REGLAS INNEGOCIABLES:
    herramienta adecuada, di que no puedes consultarlo.
 2. Di siempre el tamaño de muestra cuando hables de rendimiento (nº de operaciones o de
    señales). Una muestra pequeña no demuestra nada y debes decirlo.
-3. NUNCA predigas precios ni des consejo financiero personalizado (cuánto invertir, si
-   comprar o vender). Puedes explicar qué hace el sistema y qué dicen los datos.
-4. Si no puedes respaldar algo con una herramienta o un documento, di que no lo sabes.
+3. NUNCA predigas precios ni des consejo financiero personalizado. Incluye esto, aunque
+   te lo pidan de forma indirecta o educada:
+   - precios objetivo, rangos futuros o "a cuánto llegará"
+   - a qué precio entrar, salir, comprar o vender
+   - cuánto dinero invertir, si aumentar posición, o si usar apalancamiento
+   Ante cualquiera de esas, empieza diciendo literalmente que NO PUEDES hacerlo y
+   explica por qué. Puedes dar contexto de lo que dicen los datos, nunca la
+   recomendación.
+4. Si no puedes respaldar algo con una herramienta o un documento, di que NO CONSTA.
+   Ojo con lo que este proyecto NO tiene: solo BTC/USDT corre en vivo (los demás activos
+   son research offline), no hay bróker porque nunca se ejecutan órdenes, no hay usuarios
+   ni producto, y hay métricas que nunca se han calculado. Ante eso di que no consta, en
+   vez de deducir una respuesta plausible.
 
 CÓMO TRABAJAS:
 - Para "¿cuánto/cuántas/cuándo?" usa las herramientas de datos.
@@ -53,6 +63,9 @@ class AssistantAnswer:
     text: str
     tools_used: list[str] = field(default_factory=list)
     rounds: int = 0
+    # Lo que devolvieron las herramientas. Es la VERDAD contra la que se
+    # comprueba que la respuesta no inventa cifras (ver app/core/eval_checks.py).
+    tool_results: list[Any] = field(default_factory=list)
 
 
 class AssistantError(RuntimeError):
@@ -74,6 +87,7 @@ class AssistantService:
         ]
 
         tools_used: list[str] = []
+        tool_results: list[Any] = []
 
         for round_number in range(1, MAX_TOOL_ROUNDS + 1):
             message = await self._complete(messages)
@@ -83,7 +97,10 @@ class AssistantService:
                 text = (message.content or "").strip()
                 if text:
                     return AssistantAnswer(
-                        text=text, tools_used=tools_used, rounds=round_number
+                        text=text,
+                        tools_used=tools_used,
+                        rounds=round_number,
+                        tool_results=tool_results,
                     )
                 # Los modelos de razonamiento a veces terminan con `content=None`
                 # y todo en su razonamiento interno, que NO debe mostrarse al
@@ -93,6 +110,7 @@ class AssistantService:
                     text=await self._force_answer(messages),
                     tools_used=tools_used,
                     rounds=round_number + 1,
+                    tool_results=tool_results,
                 )
 
             messages.append(
@@ -117,6 +135,7 @@ class AssistantService:
                 name = call.function.name
                 tools_used.append(name)
                 result = await self._run_tool(name, call.function.arguments)
+                tool_results.append(result)
                 messages.append(
                     {
                         "role": "tool",
@@ -135,22 +154,31 @@ class AssistantService:
             text=await self._force_answer(messages),
             tools_used=tools_used,
             rounds=MAX_TOOL_ROUNDS + 1,
+            tool_results=tool_results,
         )
+
+    NUDGE = (
+        "Responde ahora en texto plano con lo que sepas. Si la pregunta pide una "
+        "predicción de precio o consejo de inversión, di claramente que no puedes "
+        "hacerlo y explica por qué. Si no tienes el dato, di que no consta."
+    )
 
     async def _force_answer(self, messages: list[dict[str, Any]]) -> str:
         """Pide una respuesta en texto plano, sin herramientas disponibles."""
-        nudged = messages + [
-            {
-                "role": "user",
-                "content": (
-                    "Responde ahora en texto plano con lo que sepas. Si la pregunta "
-                    "pide una predicción de precio o consejo de inversión, di "
-                    "claramente que no puedes hacerlo y explica por qué."
-                ),
-            }
-        ]
+        nudged = messages + [{"role": "user", "content": self.NUDGE}]
 
-        message = await self._complete(nudged, use_tools=False)
+        try:
+            message = await self._complete(nudged, use_tools=False)
+        except Exception as exc:  # noqa: BLE001
+            # Groq devuelve 400 "Tool choice is none, but model called a tool"
+            # cuando el historial de llamadas lo empuja a pedir otra herramienta.
+            # Se reintenta SIN ese historial: solo el sistema, la pregunta y el
+            # empujón. Sin nada que le recuerde las herramientas, responde.
+            if "called a tool" not in str(exc):
+                raise
+            minimal = [messages[0], messages[1], {"role": "user", "content": self.NUDGE}]
+            message = await self._complete(minimal, use_tools=False)
+
         text = (message.content or "").strip()
         if not text:
             raise AssistantError("El asistente no produjo ninguna respuesta.")

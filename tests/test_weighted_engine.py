@@ -1,9 +1,10 @@
 """
-Tests del vol-targeting.
+Tests de la simulación de carteras con peso variable (en `backtest.engine`).
 
-Lo que protegen: que no haya lookahead, que el peso nunca decida entrar o salir
-(eso lo manda la señal de régimen), y que las comisiones de rebalanceo se cobren
-de verdad — es justo lo que suele desmontar al vol-targeting ingenuo.
+Vienen del estudio de vol-targeting, que se descartó; las funciones se
+quedaron porque son infraestructura: cualquier estrategia futura que no sea
+binaria dentro/fuera las necesita. Protegen que no haya lookahead y que las
+comisiones de rebalanceo se cobren de verdad.
 """
 
 from __future__ import annotations
@@ -12,20 +13,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from backtest.vol_targeting import (
-    compute_weights,
-    realised_volatility,
-    simulate_weighted_equity,
-)
+from backtest.engine import realised_volatility, simulate_weighted_equity
 
 
 def _index(n: int) -> pd.DatetimeIndex:
     return pd.date_range("2026-01-01", periods=n, freq="h", tz="UTC")
-
-
-# ============================================================
-# Volatilidad
-# ============================================================
 
 
 def test_volatility_is_nan_until_the_window_is_full() -> None:
@@ -50,76 +42,6 @@ def test_volatility_uses_only_past_returns() -> None:
     vol_after = realised_volatility(tampered, window=24)
 
     pd.testing.assert_series_equal(vol_before.iloc[:100], vol_after.iloc[:100])
-
-
-def test_higher_volatility_lowers_the_weight() -> None:
-    calm = pd.Series(0.20, index=_index(10))
-    wild = pd.Series(0.80, index=_index(10))
-    in_position = pd.Series(True, index=_index(10))
-
-    calm_weights = compute_weights(in_position, calm, target_vol=0.40, max_leverage=5.0)
-    wild_weights = compute_weights(in_position, wild, target_vol=0.40, max_leverage=5.0)
-
-    assert calm_weights.iloc[-1] > wild_weights.iloc[-1]
-
-
-# ============================================================
-# Pesos
-# ============================================================
-
-
-def test_weight_is_zero_when_out_of_position() -> None:
-    """El vol-targeting dimensiona; NUNCA decide entrar o salir."""
-    index = _index(10)
-    in_position = pd.Series([True] * 5 + [False] * 5, index=index)
-    vol = pd.Series(0.20, index=index)
-
-    weights = compute_weights(in_position, vol, target_vol=0.40, max_leverage=1.0)
-
-    assert (weights.iloc[5:] == 0.0).all()
-    assert (weights.iloc[:5] > 0).all()
-
-
-def test_weight_respects_the_leverage_cap() -> None:
-    index = _index(10)
-    in_position = pd.Series(True, index=index)
-    very_calm = pd.Series(0.01, index=index)  # pediría un peso enorme
-
-    weights = compute_weights(in_position, very_calm, target_vol=0.40, max_leverage=1.0)
-
-    assert weights.max() == pytest.approx(1.0)
-
-
-def test_missing_volatility_yields_zero_weight() -> None:
-    """Sin volatilidad calculable no se dimensiona a ciegas."""
-    index = _index(5)
-    in_position = pd.Series(True, index=index)
-    vol = pd.Series([np.nan] * 5, index=index)
-
-    weights = compute_weights(in_position, vol, target_vol=0.40)
-
-    assert (weights == 0.0).all()
-
-
-def test_rebalance_band_suppresses_small_adjustments() -> None:
-    index = _index(4)
-    in_position = pd.Series(True, index=index)
-    # Volatilidad que se mueve poco: el peso objetivo apenas cambia.
-    vol = pd.Series([0.40, 0.41, 0.40, 0.41], index=index)
-
-    banded = compute_weights(
-        in_position, vol, target_vol=0.40, max_leverage=1.0, rebalance_band=0.50
-    )
-    unbanded = compute_weights(
-        in_position, vol, target_vol=0.40, max_leverage=1.0, rebalance_band=0.0
-    )
-
-    assert banded.nunique() < unbanded.nunique()
-
-
-# ============================================================
-# Simulación
-# ============================================================
 
 
 def test_full_weight_tracks_the_asset() -> None:

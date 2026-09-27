@@ -101,9 +101,19 @@ async def get_trade_history() -> dict[str, Any]:
     if entry is not None and ordered:
         trades.append(_trade(entry, ordered[-1], closed=False))
 
+    closed = [trade for trade in trades if trade["cerrada"]]
+    winners = [trade for trade in trades if trade["retorno_bruto_pct"] > 0]
+
+    # Los recuentos se dan HECHOS a propósito. Si el modelo tiene que contarlos,
+    # está calculando, y ahí es donde se cuelan los errores (la batería marcó
+    # "4 cerradas y 1 abierta" como cifras sin respaldo, con razón).
     return {
         "operaciones": trades,
         "total": len(trades),
+        "cerradas": len(closed),
+        "abiertas": len(trades) - len(closed),
+        "ganadoras": len(winners),
+        "perdedoras": len(trades) - len(winners),
         "nota": "Retorno BRUTO entre precios de apertura, sin fees.",
     }
 
@@ -136,6 +146,9 @@ async def get_ai_opinion_stats() -> dict[str, Any]:
     return {
         "total": len(opinions),
         "por_estado": dict(statuses),
+        # Dado hecho para que el modelo no tenga que sumar estados.
+        "fallidas": len(opinions) - statuses.get("ok", 0),
+        "correctas": statuses.get("ok", 0),
         "confianza_n": len(confidences),
         "confianza_media": (
             round(sum(confidences) / len(confidences), 1) if confidences else None

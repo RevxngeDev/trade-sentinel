@@ -20,6 +20,9 @@ from dataclasses import dataclass
 HEADING = re.compile(r"^(#{1,6})\s+(.*\S)\s*$")
 FENCE = re.compile(r"^\s*(```|~~~)")
 
+# Caracteres con significado en tsquery: si llegan crudos, Postgres falla.
+TSQUERY_TOKEN = re.compile(r"[0-9A-Za-zÁÉÍÓÚÜÑáéíóúüñ_-]+")
+
 # Por encima de esto un fragmento se parte por párrafos: secciones enormes
 # diluyen la búsqueda y llenan el prompt de ruido.
 MAX_CHARS = 1500
@@ -39,6 +42,22 @@ class Chunk:
 
 def _hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def to_or_tsquery(text: str) -> str:
+    """
+    Convierte lenguaje natural en un tsquery con OR entre términos.
+
+    Se usa como RESPALDO cuando la búsqueda estricta (todos los términos) no
+    devuelve nada. Sin esto, una pregunta del LLM como "por qué se descartó el
+    apalancamiento" no encontraría nada: exigir todas las palabras es demasiado
+    restrictivo para lenguaje natural.
+
+    También sanea la entrada: `&`, `|`, `!`, `:` y los paréntesis tienen
+    significado en tsquery y hacen fallar la consulta si llegan crudos.
+    """
+    tokens = TSQUERY_TOKEN.findall(text)
+    return " | ".join(tokens)
 
 
 def _section_path(stack: list[tuple[int, str]]) -> str:

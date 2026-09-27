@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Protocol
 
-from supabase import Client
 
-from app.core.supabase_client import get_supabase_client
+from app.core.knowledge import to_or_tsquery
+from app.core.supabase_client import SupabaseStore
 from app.schemas.knowledge import KnowledgeChunkRead, KnowledgeSourceFreshness
 
 
@@ -21,13 +21,7 @@ class KnowledgeStore(Protocol):
     async def freshness(self) -> list[KnowledgeSourceFreshness]: ...
 
 
-class SupabaseKnowledgeStore:
-    def __init__(self, client: Client | None = None) -> None:
-        self._client = client
-
-    @property
-    def client(self) -> Client:
-        return self._client or get_supabase_client()
+class SupabaseKnowledgeStore(SupabaseStore):
 
     async def replace_source(self, source: str, rows: list[dict[str, Any]]) -> int:
         """
@@ -49,6 +43,29 @@ class SupabaseKnowledgeStore:
         return len(response.data) if response is not None and response.data else 0
 
     async def search(self, query: str, limit: int) -> list[KnowledgeChunkRead]:
+        """
+        Busca primero exigiendo TODOS los términos y, si no hay nada, con OR.
+
+        Dos pasadas porque el LLM manda lenguaje natural: exigir todas las
+        palabras de "por qué se descartó el apalancamiento" no encontraría nada,
+        y buscar con OR desde el principio devolvería ruido cuando sí existe una
+        coincidencia precisa. Primero precisión, luego recall.
+        """
+        rows = await self._query(query, limit, search_type="plain")
+        if not rows:
+            fallback = to_or_tsquery(query)
+            if fallback:
+                rows = await self._query(fallback, limit, search_type=None)
+
+        return [KnowledgeChunkRead.model_validate(item) for item in rows]
+
+    async def _query(
+        self, expression: str, limit: int, *, search_type: str | None
+    ) -> list[Any]:
+        options: dict[str, Any] = {"config": "spanish"}
+        if search_type:
+            options["type"] = search_type
+
         def fetch() -> Any:
             # `limit()` va ANTES de `text_search()`: el builder que devuelve el
             # filtro de texto no expone `limit`.
@@ -56,12 +73,12 @@ class SupabaseKnowledgeStore:
                 self.client.table("knowledge_chunks")
                 .select("*")
                 .limit(limit)
-                .text_search("content", query, options={"config": "spanish"})
+                .text_search("content", expression, options=options)
                 .execute()
             )
 
         response = await asyncio.to_thread(fetch)
-        return [KnowledgeChunkRead.model_validate(item) for item in response.data]
+        return response.data
 
     async def freshness(self) -> list[KnowledgeSourceFreshness]:
         def fetch() -> Any:

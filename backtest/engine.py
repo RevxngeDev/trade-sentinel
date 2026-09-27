@@ -13,8 +13,10 @@ Reglas:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from app.core.metrics import (
@@ -245,3 +247,114 @@ def build_metrics(
         "profitable": total_return_pct > 0,
         "beat_benchmark": total_return_pct > benchmark_return_pct,
     }
+
+
+# ============================================================
+# Carteras con peso VARIABLE
+#
+# El motor de arriba es binario: dentro o fuera. Estas funciones simulan un
+# peso continuo y cobran comisión sobre el TURNOVER (|Δpeso|), no solo al
+# entrar y salir. Es lo que hunde a las estrategias que rebalancean mucho, y
+# omitirlo las hace parecer rentables cuando no lo son.
+# ============================================================
+
+# Velas de 1h: 24 * 365.
+HOURLY_PERIODS_PER_YEAR = 24 * 365
+
+
+def realised_volatility(
+    close: pd.Series,
+    *,
+    window: int = 168,
+    periods_per_year: int = HOURLY_PERIODS_PER_YEAR,
+) -> pd.Series:
+    """
+    Volatilidad anualizada de los últimos `window` retornos CERRADOS.
+
+    Causal por construcción: el valor en `t` solo usa retornos hasta `t`. Se deja
+    así (sin shift extra) porque el retorno de `t` ya ocurrió cuando se decide el
+    peso que se aplicará de `t` a `t+1`.
+    """
+    returns = close.pct_change()
+    return returns.rolling(window, min_periods=window).std() * np.sqrt(periods_per_year)
+
+
+
+@dataclass
+class WeightedResult:
+    total_return_pct: float
+    max_drawdown_pct: float
+    annualised_vol_pct: float
+    return_over_drawdown: float
+    turnover: float
+    fees_paid_pct: float
+    avg_weight: float
+    max_weight: float
+    equity: pd.Series
+
+
+
+def simulate_weighted_equity(
+    close: pd.Series,
+    weights: pd.Series,
+    *,
+    fee: float = 0.001,
+    periods_per_year: int = HOURLY_PERIODS_PER_YEAR,
+) -> WeightedResult:
+    """
+    Equity de una cartera con peso variable, cobrando fee sobre el turnover.
+
+    El peso en `t` se aplica al retorno de `t -> t+1` (sin lookahead).
+    """
+    prices = close.to_numpy(dtype=float)
+    w = weights.to_numpy(dtype=float)
+
+    equity = 1.0
+    previous_weight = 0.0
+    total_turnover = 0.0
+    total_fees = 0.0
+
+    curve = np.empty(len(prices))
+
+    for i in range(len(prices)):
+        turnover = abs(w[i] - previous_weight)
+        fee_cost = equity * fee * turnover
+        equity -= fee_cost
+
+        total_turnover += turnover
+        total_fees += fee_cost
+
+        curve[i] = equity
+
+        if i < len(prices) - 1:
+            period_return = prices[i + 1] / prices[i] - 1
+            equity *= 1 + w[i] * period_return
+
+        previous_weight = w[i]
+
+    equity_series = pd.Series(curve, index=weights.index, name="equity")
+
+    running_peak = np.maximum.accumulate(curve)
+    max_drawdown = float(np.max((running_peak - curve) / running_peak)) * 100
+
+    equity_returns = pd.Series(curve).pct_change().dropna()
+    annualised_vol = (
+        float(equity_returns.std() * np.sqrt(periods_per_year)) * 100
+        if len(equity_returns) > 1
+        else 0.0
+    )
+
+    total_return = (equity - 1) * 100
+
+    return WeightedResult(
+        total_return_pct=total_return,
+        max_drawdown_pct=max_drawdown,
+        annualised_vol_pct=annualised_vol,
+        # Retorno por unidad de dolor: el número que el vol-targeting pretende mejorar.
+        return_over_drawdown=total_return / max_drawdown if max_drawdown > 0 else 0.0,
+        turnover=total_turnover,
+        fees_paid_pct=total_fees * 100,
+        avg_weight=float(np.mean(w)),
+        max_weight=float(np.max(w)) if len(w) else 0.0,
+        equity=equity_series,
+    )

@@ -6,9 +6,8 @@ import asyncio
 from datetime import datetime, timezone
 from typing import Any, Protocol
 
-from supabase import Client
 
-from app.core.supabase_client import get_supabase_client
+from app.core.supabase_client import SupabaseStore
 from app.schemas.regime import SignalAIOpinionRead, SignalRead, SignalResultRead
 
 
@@ -42,15 +41,9 @@ class AIOpinionStore(Protocol):
     async def list_opinions(self, limit: int) -> list[SignalAIOpinionRead]: ...
 
 
-class SupabaseSignalStore:
+class SupabaseSignalStore(SupabaseStore):
     """Use Supabase's HTTPS/PostgREST API instead of a PostgreSQL pooler."""
 
-    def __init__(self, client: Client | None = None) -> None:
-        self._client = client
-
-    @property
-    def client(self) -> Client:
-        return self._client or get_supabase_client()
 
     async def insert_if_absent(self, payload: dict[str, Any]) -> SignalRead | None:
         def insert() -> Any:
@@ -85,11 +78,6 @@ class SupabaseSignalStore:
         response = await asyncio.to_thread(fetch)
         return SignalRead.model_validate(response.data[0]) if response.data else None
 
-    # PostgREST corta las respuestas en `max-rows` (1000 por defecto en Supabase)
-    # y NO avisa: pedir 5000 devuelve 1000 en silencio. Con la equity reconstruida
-    # eso sería grave — el benchmark arrancaría a mitad del historial y el
-    # "rendimiento real" saldría mal sin que nada fallara. Por eso se pagina.
-    PAGE_SIZE = 1000
 
     async def list_signals(self, pair: str | None, limit: int) -> list[SignalRead]:
         def fetch(offset: int, size: int) -> Any:
@@ -102,13 +90,7 @@ class SupabaseSignalStore:
                 .execute()
             )
 
-        rows: list[Any] = []
-        while len(rows) < limit:
-            page = min(self.PAGE_SIZE, limit - len(rows))
-            response = await asyncio.to_thread(fetch, len(rows), page)
-            rows.extend(response.data)
-            if len(response.data) < page:
-                break
+        rows = await self.paginate(fetch, limit)
 
         return [SignalRead.model_validate(item) for item in rows]
 
@@ -126,15 +108,9 @@ class SupabaseSignalStore:
         return SignalRead.model_validate(response.data[0]) if response.data else None
 
 
-class SupabaseSignalResultStore:
+class SupabaseSignalResultStore(SupabaseStore):
     """Persist forward-only paper-trading observations through HTTPS."""
 
-    def __init__(self, client: Client | None = None) -> None:
-        self._client = client
-
-    @property
-    def client(self) -> Client:
-        return self._client or get_supabase_client()
 
     async def list_result_signal_ids(self, limit: int) -> set[int]:
         def fetch() -> Any:
@@ -169,8 +145,6 @@ class SupabaseSignalResultStore:
             return None
         return SignalResultRead.model_validate(response.data[0])
 
-    # Mismo corte silencioso de PostgREST que en las señales (ver PAGE_SIZE allí).
-    PAGE_SIZE = 1000
 
     async def list_results(self, limit: int) -> list[SignalResultRead]:
         def fetch(offset: int, size: int) -> Any:
@@ -182,30 +156,18 @@ class SupabaseSignalResultStore:
                 .execute()
             )
 
-        rows: list[Any] = []
-        while len(rows) < limit:
-            page = min(self.PAGE_SIZE, limit - len(rows))
-            response = await asyncio.to_thread(fetch, len(rows), page)
-            rows.extend(response.data)
-            if len(response.data) < page:
-                break
+        rows = await self.paginate(fetch, limit)
 
         return [SignalResultRead.model_validate(item) for item in rows]
 
 
-class SupabaseAIOpinionStore:
+class SupabaseAIOpinionStore(SupabaseStore):
     """
     Persiste opiniones del LLM sobre señales ya guardadas.
 
     Solo escribe y lee: nada en la ruta de decisión consulta esta tabla.
     """
 
-    def __init__(self, client: Client | None = None) -> None:
-        self._client = client
-
-    @property
-    def client(self) -> Client:
-        return self._client or get_supabase_client()
 
     async def insert_if_absent(
         self, payload: dict[str, Any]
